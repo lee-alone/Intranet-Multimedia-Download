@@ -1,0 +1,78 @@
+# 校园资源采集系统配置文件示例
+# 复制此文件为 config.yaml 并修改配置
+
+# 服务器配置
+server:
+  host: "0.0.0.0"
+  port: 8080
+  shutdown_timeout: 30
+
+# 数据库配置
+database:
+  path: "./data/collector.db"
+  wal_mode: true
+  max_conns: 10
+
+# 认证配置
+auth:
+  # JWT 密钥文件路径（使用 RS256 算法）
+  # 使用 cmd/keygen 生成密钥对
+  private_key: "./keys/private.pem"
+  public_key: "./keys/public.pem"
+  token_expiry: 60      # 分钟
+  refresh_expiry: 1440  # 分钟 (24小时)
+  ldap:
+    enabled: false
+    url: "ldap://ldap.example.com:389"
+    bind_dn: "cn=admin,dc=example,dc=com"
+    password: "${LDAP_PASSWORD:-}"
+    base_dn: "ou=users,dc=example,dc=com"
+    timeout: 10
+
+# 下载配置
+download:
+  concurrent: 10
+  max_retries: 3
+  timeout: 3600        # 秒 (1小时)
+  max_file_size: 10737418240  # 10GB
+  temp_dir: "./temp"
+  output_dir: "./downloads"
+  # 允许下载的域名白名单
+  whitelist:
+    - "bilibili.com"
+    - "youtube.com"
+    - "youku.com"
+    - "iqiyi.com"
+    - "v.qq.com"
+    - "tv.cctv.com"
+
+# 日志配置
+log:
+  level: "info"  # debug, info, warn, error
+  dir: "./logs"
+  max_size: 100  # MB
+  max_age: 7     # 天
+  compress: true
+
+# 安全配置
+security:
+  allowed_hosts:
+    - "localhost"
+    - "127.0.0.1"
+  enable_rate_limit: true
+  rate_limit_rps: 100  # 每秒请求数
+
+# 告警配置
+alert:
+  # Webhook 告警（钉钉/企业微信）
+  webhook_url: "${ALERT_WEBHOOK:-}"
+  # 邮件告警
+  email:
+    enabled: false
+    smtp_host: "smtp.example.com"
+    smtp_port: 587
+    smtp_user: "alert@example.com"
+    smtp_password: "${SMTP_PASSWORD:-}"
+    from: "alert@example.com"
+    to:
+      - "admin@example.com"
