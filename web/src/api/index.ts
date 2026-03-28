@@ -1,11 +1,10 @@
 import axios, { type AxiosInstance, type AxiosRequestConfig, type AxiosResponse } from 'axios'
 
-// API 响应类型
+// API 响应类型定义（与后端 API 规范一致）
 export interface ApiResponse<T = unknown> {
-  success: boolean
-  data?: T
-  message?: string
-  error?: string
+  code: number      // 错误码：0 表示成功
+  message: string   // 消息
+  data?: T          // 数据
 }
 
 // 分页响应
@@ -30,10 +29,11 @@ const api: AxiosInstance = axios.create({
   },
 })
 
-// 请求拦截器
+// 请求拦截器 - 添加认证 token
 api.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('token')
+    // 优先从 sessionStorage 获取 token（更安全）
+    const token = sessionStorage.getItem('token') || localStorage.getItem('token')
     if (token) {
       config.headers.Authorization = `Bearer ${token}`
     }
@@ -44,7 +44,7 @@ api.interceptors.request.use(
   }
 )
 
-// 响应拦截器
+// 响应拦截器 - 统一错误处理
 api.interceptors.response.use(
   (response: ApiAxiosResponse) => {
     return response
@@ -54,6 +54,7 @@ api.interceptors.response.use(
       switch (error.response.status) {
         case 401:
           // 未授权，清除 token 并跳转登录
+          sessionStorage.removeItem('token')
           localStorage.removeItem('token')
           window.location.href = '/login'
           break
@@ -93,6 +94,23 @@ export async function put<T>(url: string, data?: unknown, config?: AxiosRequestC
 export async function del<T>(url: string, config?: AxiosRequestConfig): Promise<ApiResponse<T>> {
   const response = await api.delete<ApiResponse<T>>(url, config)
   return response.data
+}
+
+// WebSocket 连接工具函数（带 token 认证）
+export function createWebSocketUrl(path: string): string {
+  const token = sessionStorage.getItem('token') || localStorage.getItem('token')
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  const host = window.location.host || 'localhost:8080'
+  
+  // 构建带 token 的 WebSocket URL
+  const wsUrl = `${protocol}//${host}${path}?token=${token}`
+  return wsUrl
+}
+
+// 创建带认证的 WebSocket 连接
+export function createAuthenticatedWebSocket(path: string): WebSocket {
+  const wsUrl = createWebSocketUrl(path)
+  return new WebSocket(wsUrl)
 }
 
 export default api

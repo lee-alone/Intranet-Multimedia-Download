@@ -44,6 +44,7 @@ coverage.html
 *.swp
 *.swo
 *~
+.qwen/
 
 # 操作系统文件
 .DS_Store

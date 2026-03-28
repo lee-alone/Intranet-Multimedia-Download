@@ -1,6 +1,9 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import api, { type ApiResponse } from '@/api'
+import { post, get, type ApiResponse } from '@/api'
+
+// 认证类型
+export type AuthType = 'local' | 'ldap'
 
 // 用户信息类型
 export interface User {
@@ -11,6 +14,13 @@ export interface User {
   mfaEnabled: boolean
 }
 
+// 登录请求参数
+export interface LoginParams {
+  username: string
+  password: string
+  authType?: AuthType
+}
+
 // 登录响应（后端返回的 token 数据）
 interface TokenData {
   access_token: string
@@ -18,33 +28,95 @@ interface TokenData {
   expires_in: number
 }
 
+// 密码强度检查结果
+export interface PasswordStrength {
+  valid: boolean
+  tooShort: boolean
+  noUppercase: boolean
+  noLowercase: boolean
+  noNumber: boolean
+}
+
+// 密码强度检查
+export function checkPasswordStrength(password: string): PasswordStrength {
+  const result: PasswordStrength = {
+    valid: true,
+    tooShort: false,
+    noUppercase: false,
+    noLowercase: false,
+    noNumber: false,
+  }
+
+  if (password.length < 8) {
+    result.tooShort = true
+    result.valid = false
+  }
+  if (!/[A-Z]/.test(password)) {
+    result.noUppercase = true
+    result.valid = false
+  }
+  if (!/[a-z]/.test(password)) {
+    result.noLowercase = true
+    result.valid = false
+  }
+  if (!/[0-9]/.test(password)) {
+    result.noNumber = true
+    result.valid = false
+  }
+
+  return result
+}
+
 export const useAuthStore = defineStore('auth', () => {
-  // 状态
-  const token = ref<string | null>(localStorage.getItem('token'))
-  const refreshToken = ref<string | null>(localStorage.getItem('refreshToken'))
+  // 状态 - 优先使用 sessionStorage 提高安全性
+  const token = ref<string | null>(sessionStorage.getItem('token') || localStorage.getItem('token'))
+  const refreshToken = ref<string | null>(sessionStorage.getItem('refreshToken') || localStorage.getItem('refreshToken'))
   const user = ref<User | null>(null)
   const loading = ref(false)
   const error = ref<string | null>(null)
+  const authType = ref<AuthType>('local')
 
   // 计算属性
   const isAuthenticated = computed(() => !!token.value)
   const isAdmin = computed(() => user.value?.role === 'admin')
 
+  // 存储 token（根据配置选择 storage）
+  function saveToken(access_token: string, refresh_token: string, useSession: boolean = true): void {
+    token.value = access_token
+    refreshToken.value = refresh_token
+
+    if (useSession) {
+      // sessionStorage 更安全（关闭浏览器即清除）
+      sessionStorage.setItem('token', access_token)
+      sessionStorage.setItem('refreshToken', refresh_token)
+    } else {
+      // localStorage 持久化（有 XSS 风险）
+      localStorage.setItem('token', access_token)
+      localStorage.setItem('refreshToken', refresh_token)
+    }
+  }
+
   // 登录
-  async function login(username: string, password: string): Promise<boolean> {
+  async function login(username: string, password: string, type: AuthType = 'local'): Promise<boolean> {
     loading.value = true
     error.value = null
+    authType.value = type
 
     try {
-      const res = await api.post<TokenData>('/login', { username, password })
-      const response = res as unknown as ApiResponse<TokenData>
+      // 构建登录请求体
+      const loginData = {
+        username,
+        password,
+        auth_type: type,
+      }
 
-      if (response.data && response.data.access_token) {
-        token.value = response.data.access_token
-        refreshToken.value = response.data.refresh_token
+      const response = await post<TokenData>('/auth/login', loginData)
 
-        localStorage.setItem('token', response.data.access_token)
-        localStorage.setItem('refreshToken', response.data.refresh_token)
+      if (response.code === 0 && response.data) {
+        const { access_token, refresh_token } = response.data
+
+        // 使用 sessionStorage 存储 token（更安全）
+        saveToken(access_token, refresh_token, true)
 
         // 获取用户信息
         await fetchUserInfo()
@@ -53,8 +125,15 @@ export const useAuthStore = defineStore('auth', () => {
         error.value = response.message || '登录失败'
         return false
       }
-    } catch (e) {
-      error.value = '登录失败，请检查网络连接'
+    } catch (e: any) {
+      // 根据错误类型提供友好提示
+      if (e.response?.status === 401) {
+        error.value = '用户名或密码错误'
+      } else if (e.code === 'ECONNREFUSED' || e.code === 'ERR_NETWORK') {
+        error.value = '服务器连接失败，请联系管理员'
+      } else {
+        error.value = '登录失败，请稍后重试'
+      }
       return false
     } finally {
       loading.value = false
@@ -67,16 +146,20 @@ export const useAuthStore = defineStore('auth', () => {
     error.value = null
 
     try {
-      const response: ApiResponse = await api.post('/register', { username, password, email })
+      const response: ApiResponse = await post('/auth/register', { username, password, email })
 
-      if (response.success) {
+      if (response.code === 0) {
         return true
       } else {
         error.value = response.message || '注册失败'
         return false
       }
-    } catch (e) {
-      error.value = '注册失败，请检查网络连接'
+    } catch (e: any) {
+      if (e.response?.status === 400) {
+        error.value = e.response.data?.message || '注册失败，用户名可能已存在'
+      } else {
+        error.value = '注册失败，请检查网络连接'
+      }
       return false
     } finally {
       loading.value = false
@@ -86,7 +169,7 @@ export const useAuthStore = defineStore('auth', () => {
   // 登出
   async function logout(): Promise<void> {
     try {
-      await api.post('/logout')
+      await post('/auth/logout')
     } catch (e) {
       // 忽略登出错误
     } finally {
@@ -99,6 +182,8 @@ export const useAuthStore = defineStore('auth', () => {
     token.value = null
     refreshToken.value = null
     user.value = null
+    sessionStorage.removeItem('token')
+    sessionStorage.removeItem('refreshToken')
     localStorage.removeItem('token')
     localStorage.removeItem('refreshToken')
   }
@@ -106,7 +191,7 @@ export const useAuthStore = defineStore('auth', () => {
   // 获取用户信息
   async function fetchUserInfo(): Promise<void> {
     try {
-      const response = await api.get<User>('/user/me')
+      const response = await get<User>('/user/me')
       if (response.data) {
         user.value = response.data
       }
@@ -122,15 +207,15 @@ export const useAuthStore = defineStore('auth', () => {
     }
 
     try {
-      const response = await api.post<TokenData>('/token/refresh', {
+      const response = await post<TokenData>('/auth/token/refresh', {
         refresh_token: refreshToken.value,
       })
 
-      if (response.data && response.data.access_token) {
-        token.value = response.data.access_token
-        refreshToken.value = response.data.refresh_token
-        localStorage.setItem('token', response.data.access_token)
-        localStorage.setItem('refreshToken', response.data.refresh_token)
+      if (response.code === 0 && response.data) {
+        const { access_token, refresh_token } = response.data
+        // 保持原有存储方式
+        const useSession = !!sessionStorage.getItem('token')
+        saveToken(access_token, refresh_token, useSession)
         return true
       }
       return false
@@ -147,6 +232,7 @@ export const useAuthStore = defineStore('auth', () => {
     user,
     loading,
     error,
+    authType,
     // 计算属性
     isAuthenticated,
     isAdmin,
@@ -157,5 +243,6 @@ export const useAuthStore = defineStore('auth', () => {
     clearAuth,
     fetchUserInfo,
     refreshAccessToken,
+    saveToken,
   }
 })
