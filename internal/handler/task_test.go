@@ -148,7 +148,7 @@ func setupTaskTest(t *testing.T) *testTaskSetup {
 	taskHandler := NewTaskHandler(db, scheduler, jwtMgr, whitelistMgr)
 
 	cleanup := func() {
-		scheduler.Stop()
+		scheduler.Shutdown()
 		db.Close()
 		os.RemoveAll(tmpDir)
 	}

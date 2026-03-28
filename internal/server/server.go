@@ -168,6 +168,14 @@ func (s *Server) registerRoutes() {
 	// 创建任务处理器（传入白名单管理器）
 	taskHandler := handler.NewTaskHandler(s.db, s.scheduler, s.jwtMgr, s.whitelistMgr)
 
+	// 创建 WebSocket/进度流处理器（传入 db 用于权限验证）
+	wsHandler := handler.NewWebSocketHandler(s.db, s.jwtMgr)
+
+	// 设置任务调度器的进度更新回调，用于 WebSocket 推送
+	s.scheduler.SetProgressUpdateCallback(func(task *engine.Task) {
+		handler.NotifyTaskUpdate(task)
+	})
+
 	// 健康检查端点
 	s.mux.HandleFunc("/health", s.healthHandler)
 
@@ -185,6 +193,12 @@ func (s *Server) registerRoutes() {
 
 	// 基础指标端点（JSON 格式）
 	s.mux.HandleFunc("/api/v1/metrics", s.apiMetricsHandler)
+
+	// 进度流端点（Server-Sent Events，用于实时推送任务进度）
+	s.mux.HandleFunc("/api/v1/progress", wsHandler.HandleProgressStream)
+
+	// WebSocket 端点（真正的 WebSocket 协议）
+	s.mux.HandleFunc("/api/v1/ws", wsHandler.HandleWebSocket)
 
 	// API v1 路由
 	s.mux.HandleFunc("/api/v1/login", authHandler.Login)

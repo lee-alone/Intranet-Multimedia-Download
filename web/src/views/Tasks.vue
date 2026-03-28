@@ -1,7 +1,6 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import { get, del } from '@/api'
-import { createAuthenticatedWebSocket } from '@/api'
+import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { get, del, createWebSocketUrl } from '@/api'
 
 // 任务类型
 interface Task {
@@ -16,12 +15,37 @@ interface Task {
   batchId?: number
 }
 
+// 平滑进度数据
+interface SmoothedProgress {
+  smoothed: number // 加权平滑后的进度
+  history: number[] // 最近几次的进度历史
+  weights: number[] // 权重
+  lastUpdated?: number // 最后更新时间戳
+}
+
+// 离线消息缓存
+interface OfflineMessage {
+  task_id: string
+  status?: string
+  progress?: number
+  timestamp: string
+}
+
 // 状态
 const tasks = ref<Task[]>([])
 const loading = ref(true)
 const error = ref('')
 const showBatchView = ref(false)
-const ws = ref<WebSocket | null>(null)
+const eventSource = ref<EventSource | null>(null)
+const usePolling = ref(false) // 是否使用轮询降级方案
+const pollInterval = ref(5000) // 轮询间隔（毫秒）
+let pollTimer: ReturnType<typeof setInterval> | null = null
+const reconnectAttempts = ref(0)
+const maxReconnectAttempts = 5
+const lastProgressCache = ref<Map<number, SmoothedProgress>>(new Map()) // 离线缓存
+const offlineMessages = ref<OfflineMessage[]>([]) // 离线期间的消息队列
+const isOffline = ref(false) // 是否处于离线状态
+const cacheCleanupInterval = ref<number | null>(null) // 缓存清理定时器
 
 // 状态样式映射
 const statusStyles: Record<string, string> = {
@@ -105,12 +129,125 @@ function formatTime(dateStr: string): string {
   })
 }
 
+// 清理已完成的缓存（防止内存泄漏）
+function cleanupFinishedTasks() {
+  const now = Date.now()
+  const cache = lastProgressCache.value
+  const completedTaskIds = new Set<number>()
+  
+  // 获取所有已完成的任务 ID
+  tasks.value.forEach(task => {
+    if (task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled') {
+      completedTaskIds.add(task.id)
+    }
+  })
+  
+  // 清理已完成任务的缓存
+  completedTaskIds.forEach(id => {
+    cache.delete(id)
+  })
+  
+  // 清理超过 5 分钟未更新的数据
+  for (const [taskId, data] of cache.entries()) {
+    if (data.lastUpdated && now - data.lastUpdated > 5 * 60 * 1000) {
+      cache.delete(taskId)
+    }
+  }
+}
+
+// 加权平滑算法 - 避免进度跳动
+function smoothProgress(taskId: number, newProgress: number): number {
+  const cache = lastProgressCache.value
+  const defaultWeights = [0.4, 0.3, 0.2, 0.1] // 权重总和为 1
+
+  if (!cache.has(taskId)) {
+    cache.set(taskId, {
+      smoothed: newProgress,
+      history: [newProgress],
+      weights: defaultWeights,
+      lastUpdated: Date.now()
+    })
+    return newProgress
+  }
+
+  const data = cache.get(taskId)!
+  const historySize = data.weights.length
+
+  // 更新历史
+  data.history.push(newProgress)
+  if (data.history.length > historySize) {
+    data.history.shift()
+  }
+  data.lastUpdated = Date.now()
+
+  // 计算加权平均
+  let weightedSum = 0
+  let weightTotal = 0
+
+  for (let i = 0; i < data.history.length; i++) {
+    const weightIndex = Math.max(0, data.weights.length - (data.history.length - i))
+    const weight = data.weights[weightIndex] || 0.1
+    weightedSum += data.history[i] * weight
+    weightTotal += weight
+  }
+
+  data.smoothed = weightedSum / weightTotal
+  cache.set(taskId, data)
+
+  return Math.round(data.smoothed * 100) / 100 // 保留两位小数
+}
+
+// 获取平滑后的进度
+function getSmoothedProgress(taskId: number, progress: number): number {
+  const smoothed = smoothProgress(taskId, progress)
+  return smoothed
+}
+
+// 处理离线消息补发
+function processOfflineMessages() {
+  if (offlineMessages.value.length === 0) return
+  
+  console.log(`处理 ${offlineMessages.value.length} 条离线消息`)
+  
+  offlineMessages.value.forEach(msg => {
+    const taskId = Number(msg.task_id)
+    const index = tasks.value.findIndex(t => t.id === taskId)
+    if (index !== -1) {
+      const smoothedProgress = getSmoothedProgress(
+        taskId,
+        msg.progress !== undefined ? msg.progress : tasks.value[index].progress
+      )
+      const newStatus = msg.status && ['queued', 'downloading', 'merging', 'completed', 'failed', 'cancelled'].includes(msg.status)
+        ? msg.status as Task['status']
+        : tasks.value[index].status
+        
+      tasks.value[index] = {
+        ...tasks.value[index],
+        progress: smoothedProgress,
+        status: newStatus,
+        message: msg.status === 'failed' ? '任务失败' : undefined,
+      }
+    }
+  })
+  
+  offlineMessages.value = []
+}
+
 // 获取任务列表
 async function fetchTasks() {
   try {
     const response = await get<Task[]>('/tasks')
     if (response.code === 0 && response.data) {
-      tasks.value = response.data
+      tasks.value = response.data.map(task => ({
+        ...task,
+        progress: getSmoothedProgress(task.id, task.progress)
+      }))
+      
+      // 恢复在线后处理离线消息
+      if (isOffline.value) {
+        isOffline.value = false
+        processOfflineMessages()
+      }
     }
   } catch (e: any) {
     console.error('获取任务列表失败:', e)
@@ -137,7 +274,6 @@ async function cancelTask(taskId: number) {
   try {
     const response = await del(`/tasks/${taskId}`)
     if (response.code === 0) {
-      // 从列表中移除
       const index = tasks.value.findIndex(t => t.id === taskId)
       if (index !== -1) {
         tasks.value[index] = { ...tasks.value[index], status: 'cancelled' }
@@ -190,64 +326,138 @@ function moveDown(taskId: number) {
   }
 }
 
-// 连接 WebSocket 获取实时进度
-function connectWebSocket() {
+// 连接 SSE（Server-Sent Events）
+function connectSSE() {
+  if (usePolling.value) {
+    startPolling()
+    return
+  }
+
   try {
-    const socket = createAuthenticatedWebSocket('/ws/tasks')
+    // 使用 EventSource 进行 SSE 连接
+    const token = localStorage.getItem('token') || sessionStorage.getItem('token')
+    const url = createWebSocketUrl('/api/v1/progress')
+    const fullUrl = `${url}${url.includes('?') ? '&' : '?'}token=${token}`
     
-    socket.onopen = () => {
-      console.log('WebSocket 连接成功')
+    const es = new EventSource(fullUrl)
+    eventSource.value = es
+
+    es.onopen = () => {
+      console.log('SSE 连接成功')
+      reconnectAttempts.value = 0
+      isOffline.value = false
     }
 
-    socket.onmessage = (event) => {
+    es.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data)
-        // 更新对应任务进度
-        const index = tasks.value.findIndex(t => t.id === data.task_id)
-        if (index !== -1) {
-          tasks.value[index] = {
-            ...tasks.value[index],
-            progress: data.progress,
-            status: data.status,
-            message: data.message,
-          }
-        }
+        handleSSEMessage(data)
       } catch (e) {
-        console.error('解析 WebSocket 消息失败:', e)
+        console.error('解析 SSE 消息失败:', e)
       }
     }
 
-    socket.onerror = (error) => {
-      console.error('WebSocket 错误:', error)
+    es.onerror = (error) => {
+      console.error('SSE 错误:', error)
+      isOffline.value = true
+      
+      // 错误时切换到轮询降级方案
+      if (reconnectAttempts.value >= maxReconnectAttempts) {
+        console.log('SSE 连接失败次数过多，切换到轮询模式')
+        usePolling.value = true
+        es.close()
+        startPolling()
+      } else {
+        reconnectAttempts.value++
+        const delay = Math.min(1000 * Math.pow(2, reconnectAttempts.value), 30000)
+        console.log(`${delay}ms 后尝试重连...`)
+        setTimeout(() => {
+          if (!usePolling.value) {
+            connectSSE()
+          }
+        }, delay)
+      }
     }
-
-    socket.onclose = () => {
-      console.log('WebSocket 连接关闭')
-      // 5 秒后尝试重连
-      setTimeout(() => {
-        if (ws.value?.readyState === WebSocket.OPEN) {
-          connectWebSocket()
-        }
-      }, 5000)
-    }
-
-    ws.value = socket
   } catch (e) {
-    console.error('WebSocket 连接失败:', e)
+    console.error('SSE 连接失败:', e)
+    // 降级到轮询
+    usePolling.value = true
+    startPolling()
+  }
+}
+
+// 处理 SSE 消息
+function handleSSEMessage(data: any) {
+  if (data.type === 'ping') {
+    // 心跳响应
+    return
+  }
+
+  if (data.type === 'task_update' && data.task_id) {
+    // 更新对应任务进度 - 使用字符串比较，因为后端 task_id 是 string
+    const taskId = Number(data.task_id)
+    const index = tasks.value.findIndex(t => t.id === taskId)
+    
+    if (index !== -1) {
+      const smoothedProgress = getSmoothedProgress(
+        taskId,
+        data.progress !== undefined ? data.progress : tasks.value[index].progress
+      )
+      tasks.value[index] = {
+        ...tasks.value[index],
+        progress: smoothedProgress,
+        status: data.status || tasks.value[index].status,
+        message: data.message,
+      }
+    } else {
+      // 如果任务不存在，缓存消息（离线补发）
+      offlineMessages.value.push({
+        task_id: String(data.task_id),
+        status: data.status,
+        progress: data.progress,
+        timestamp: data.timestamp
+      })
+    }
+  }
+}
+
+// 轮询降级方案
+function startPolling() {
+  console.log('开始轮询模式')
+  if (pollTimer) {
+    clearInterval(pollTimer)
+  }
+  pollTimer = setInterval(() => {
+    fetchTasks()
+  }, pollInterval.value)
+}
+
+function stopPolling() {
+  if (pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
   }
 }
 
 // 生命周期
 onMounted(() => {
   fetchTasks()
-  connectWebSocket()
+  connectSSE()
+  
+  // 定期清理缓存（每 5 分钟）
+  cacheCleanupInterval.value = setInterval(() => {
+    cleanupFinishedTasks()
+  }, 5 * 60 * 1000)
 })
 
 // 清理
-import { onBeforeUnmount } from 'vue'
 onBeforeUnmount(() => {
-  if (ws.value) {
-    ws.value.close()
+  if (eventSource.value) {
+    eventSource.value.close()
+  }
+  stopPolling()
+  if (cacheCleanupInterval.value) {
+    clearInterval(cacheCleanupInterval.value)
   }
 })
 </script>
