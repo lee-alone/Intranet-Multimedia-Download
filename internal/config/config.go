@@ -19,6 +19,7 @@ type Config struct {
 	Download DownloadConfig `yaml:"download"`
 	Log      LogConfig      `yaml:"log"`
 	Security SecurityConfig `yaml:"security"`
+	Alert    AlertConfig    `yaml:"alert"`
 }
 
 // ServerConfig 服务器配置
@@ -96,6 +97,26 @@ type LogConfig struct {
 	Compress bool   `yaml:"compress"`
 }
 
+// AlertConfig 告警配置
+type AlertConfig struct {
+	EnableDiskAlert   bool     `yaml:"enable_disk_alert"`   // 启用磁盘告警
+	DiskThreshold     float64  `yaml:"disk_threshold"`      // 磁盘使用率阈值 (0-1)
+	CheckInterval     int      `yaml:"check_interval"`      // 检查间隔 (分钟)
+	EnableWebhook     bool     `yaml:"enable_webhook"`      // 启用 Webhook
+	WebhookURL        string   `yaml:"webhook_url"`         // Webhook URL
+	WebhookType       string   `yaml:"webhook_type"`        // Webhook 类型：dingtalk, wechat, feishu
+	EnableEmail       bool     `yaml:"enable_email"`        // 启用邮件告警
+	EmailSMTPServer   string   `yaml:"email_smtp_server"`   // SMTP 服务器
+	EmailSMTPPort     int      `yaml:"email_smtp_port"`     // SMTP 端口
+	EmailFrom         string   `yaml:"email_from"`          // 发件人邮箱
+	EmailPassword     string   `yaml:"email_password"`      // 邮箱密码/授权码
+	EmailTo           []string `yaml:"email_to"`            // 收件人列表
+	EmailUseTLS       bool     `yaml:"email_use_tls"`       // 使用 TLS
+	EmailAuthType     string   `yaml:"email_auth_type"`     // 认证类型：LOGIN, PLAIN
+	EnableLogAlert    bool     `yaml:"enable_log_alert"`    // 启用日志告警
+	LogAlertThreshold int      `yaml:"log_alert_threshold"` // 日志告警阈值（条/分钟）
+}
+
 // SecurityConfig 安全配置
 type SecurityConfig struct {
 	AllowedHosts    []string `yaml:"allowed_hosts"`
@@ -152,6 +173,19 @@ func DefaultConfig() *Config {
 			AllowedHosts:    []string{"localhost", "127.0.0.1"},
 			EnableRateLimit: true,
 			RateLimitRPS:    100,
+		},
+		Alert: AlertConfig{
+			EnableDiskAlert:   true,
+			DiskThreshold:     0.8, // 80%
+			CheckInterval:     5,   // 5 分钟
+			EnableWebhook:     false,
+			WebhookType:       "dingtalk",
+			EnableEmail:       false,
+			EmailSMTPPort:     25,
+			EmailUseTLS:       true,
+			EmailAuthType:     "PLAIN",
+			EnableLogAlert:    false,
+			LogAlertThreshold: 100,
 		},
 	}
 }

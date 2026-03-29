@@ -57,7 +57,27 @@ log:
 # 安全配置
 security:
   allowed_hosts:
-    - "localhost"
-    - "127.0.0.1"
+  - "localhost"
+  - "127.0.0.1"
   enable_rate_limit: true
   rate_limit_rps: 100
+
+# 告警配置
+alert:
+  enable_disk_alert: true       # 启用磁盘空间告警
+  disk_threshold: 0.8           # 磁盘使用率阈值 (80%)
+  check_interval: 5             # 检查间隔 (分钟)
+  enable_webhook: false         # 启用 Webhook 告警
+  webhook_url: ""               # Webhook URL
+  webhook_type: "dingtalk"      # Webhook 类型：dingtalk, wechat, feishu
+  enable_email: false           # 启用邮件告警
+  email_smtp_server: "smtp.example.com"
+  email_smtp_port: 587
+  email_from: "alert@example.com"
+  email_password: "${EMAIL_PASSWORD:-}"
+  email_to:
+  - "admin@example.com"
+  email_use_tls: true
+  email_auth_type: "PLAIN"      # 认证类型：LOGIN, PLAIN
+  enable_log_alert: false       # 启用日志告警
+  log_alert_threshold: 100      # 日志告警阈值（条/分钟）

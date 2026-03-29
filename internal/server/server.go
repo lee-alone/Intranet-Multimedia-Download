@@ -13,11 +13,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/campus/collector/internal/alert"
 	"github.com/campus/collector/internal/audit"
 	"github.com/campus/collector/internal/auth"
 	"github.com/campus/collector/internal/config"
 	"github.com/campus/collector/internal/engine"
 	"github.com/campus/collector/internal/handler"
+	"github.com/campus/collector/internal/logrotate"
 	"github.com/campus/collector/internal/middleware"
 )
 
@@ -32,6 +34,8 @@ type Server struct {
 	mux          *http.ServeMux
 	scheduler    *engine.TaskScheduler
 	whitelistMgr *middleware.WhitelistManager
+	alertManager *alert.AlertManager
+	logRotator   *logrotate.Rotator
 
 	// 健康检查状态
 	healthMutex  sync.RWMutex
@@ -124,6 +128,35 @@ func New(cfg *config.Config, db *sql.DB, scheduler *engine.TaskScheduler) (*Serv
 	// 创建白名单管理器
 	whitelistMgr := middleware.NewWhitelistManager(cfg.Download.Whitelist)
 
+	// 创建告警管理器
+	alertConfig := alert.Config{
+		EnableDiskAlert:   cfg.Alert.EnableDiskAlert,
+		DiskThreshold:     cfg.Alert.DiskThreshold,
+		CheckInterval:     time.Duration(cfg.Alert.CheckInterval) * time.Minute,
+		EnableWebhook:     cfg.Alert.EnableWebhook,
+		WebhookURL:        cfg.Alert.WebhookURL,
+		WebhookType:       cfg.Alert.WebhookType,
+		EnableEmail:       cfg.Alert.EnableEmail,
+		EmailSMTPServer:   cfg.Alert.EmailSMTPServer,
+		EmailSMTPPort:     cfg.Alert.EmailSMTPPort,
+		EmailFrom:         cfg.Alert.EmailFrom,
+		EmailPassword:     cfg.Alert.EmailPassword,
+		EmailTo:           cfg.Alert.EmailTo,
+		EmailUseTLS:       cfg.Alert.EmailUseTLS,
+		EmailAuthType:     cfg.Alert.EmailAuthType,
+		EnableLogAlert:    cfg.Alert.EnableLogAlert,
+		LogAlertThreshold: cfg.Alert.LogAlertThreshold,
+	}
+	alertManager := alert.NewAlertManager(alertConfig)
+
+	// 创建日志轮转器
+	logRotator := logrotate.NewRotator(cfg.Log.Dir, logrotate.Config{
+		MaxSize:    int64(cfg.Log.MaxSize),
+		MaxAge:     cfg.Log.MaxAge,
+		Compress:   cfg.Log.Compress,
+		MaxBackups: 10,
+	})
+
 	mux := http.NewServeMux()
 
 	startTime := time.Now()
@@ -137,6 +170,8 @@ func New(cfg *config.Config, db *sql.DB, scheduler *engine.TaskScheduler) (*Serv
 		mux:          mux,
 		scheduler:    scheduler,
 		whitelistMgr: whitelistMgr,
+		alertManager: alertManager,
+		logRotator:   logRotator,
 		server: &http.Server{
 			Addr:         cfg.GetAddress(),
 			Handler:      mux,
@@ -164,6 +199,16 @@ func (s *Server) Start() error {
 	// 注册路由
 	s.registerRoutes()
 
+	// 启动告警管理器
+	if s.alertManager != nil {
+		s.alertManager.Start()
+	}
+
+	// 启动日志轮转定时任务
+	if s.logRotator != nil {
+		go s.logRotateLoop()
+	}
+
 	// 启动服务器
 	log.Printf("Server starting on %s", s.cfg.GetAddress())
 
@@ -174,9 +219,26 @@ func (s *Server) Start() error {
 	return nil
 }
 
+// logRotateLoop 日志轮转循环（每小时检查一次）
+func (s *Server) logRotateLoop() {
+	ticker := time.NewTicker(1 * time.Hour)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		if err := s.logRotator.Rotate(); err != nil {
+			log.Printf("日志轮转失败：%v", err)
+		}
+	}
+}
+
 // Shutdown 优雅关闭服务器
 func (s *Server) Shutdown(ctx context.Context) error {
 	log.Println("Server shutting down...")
+
+	// 关闭告警管理器
+	if s.alertManager != nil {
+		s.alertManager.Stop()
+	}
 
 	// 关闭审计日志记录器
 	if s.auditLogger != nil {
