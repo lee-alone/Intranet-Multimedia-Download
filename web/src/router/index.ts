@@ -18,6 +18,7 @@ const viewComponents: Record<string, () => Promise<Component>> = {
   Tasks: () => import('@/views/Tasks.vue'),
   NewTask: () => import('@/views/NewTask.vue'),
   Audit: () => import('@/views/Audit.vue'),
+  MfaBind: () => import('@/views/MfaBind.vue'),
   NotFound: () => import('@/views/NotFound.vue'),
 }
 
@@ -68,15 +69,23 @@ const routes: RouteRecordRaw[] = [
           title: '新建任务',
         } as CustomRouteMeta,
       },
-      {
-        path: 'audit',
-        name: 'Audit',
-        component: lazyLoad('Audit'),
-        meta: {
-          requiresMFA: true,
-          title: '审计日志',
-        } as CustomRouteMeta,
-      },
+     {
+       path: 'audit',
+       name: 'Audit',
+       component: lazyLoad('Audit'),
+       meta: {
+         requiresMFA: true,
+         title: '审计日志',
+       } as CustomRouteMeta,
+     },
+     {
+       path: 'mfa-bind',
+       name: 'MfaBind',
+       component: lazyLoad('MfaBind'),
+       meta: {
+         title: 'MFA 绑定',
+       } as CustomRouteMeta,
+     },
     ],
   },
   {
@@ -121,17 +130,17 @@ router.beforeEach((to, _from, next) => {
     return
   }
 
-  // 检查 MFA 要求
-  if (meta.requiresMFA) {
-    const userMfaEnabled = localStorage.getItem('mfaEnabled')
-    if (!userMfaEnabled) {
-      // TODO: 跳转到 MFA 绑定或验证页面
-      // next({ name: 'MFAVerify', query: { redirect: to.fullPath } })
-      // return
-    }
-  }
-
-  next()
+ // 检查 MFA 要求
+ if (meta.requiresMFA) {
+   const userMfaEnabled = localStorage.getItem('mfaEnabled')
+   if (!userMfaEnabled) {
+     // 跳转到 MFA 绑定页面
+     next({ name: 'MfaBind', query: { redirect: to.fullPath } })
+     return
+   }
+ }
+ 
+ next()
 })
 
 // 路由后置钩子 - 页面滚动到顶部

@@ -68,9 +68,9 @@ export function checkPasswordStrength(password: string): PasswordStrength {
 }
 
 export const useAuthStore = defineStore('auth', () => {
-  // 状态 - 优先使用 sessionStorage 提高安全性
-  const token = ref<string | null>(sessionStorage.getItem('token') || localStorage.getItem('token'))
-  const refreshToken = ref<string | null>(sessionStorage.getItem('refreshToken') || localStorage.getItem('refreshToken'))
+  // 状态 - 统一使用 localStorage 避免刷新丢失
+  const token = ref<string | null>(localStorage.getItem('token'))
+  const refreshToken = ref<string | null>(localStorage.getItem('refreshToken'))
   const user = ref<User | null>(null)
   const loading = ref(false)
   const error = ref<string | null>(null)
@@ -80,20 +80,13 @@ export const useAuthStore = defineStore('auth', () => {
   const isAuthenticated = computed(() => !!token.value)
   const isAdmin = computed(() => user.value?.role === 'admin')
 
-  // 存储 token（根据配置选择 storage）
-  function saveToken(access_token: string, refresh_token: string, useSession: boolean = true): void {
+  // 存储 token（统一使用 localStorage）
+  function saveToken(access_token: string, refresh_token: string, _useSession: boolean = true): void {
     token.value = access_token
     refreshToken.value = refresh_token
-
-    if (useSession) {
-      // sessionStorage 更安全（关闭浏览器即清除）
-      sessionStorage.setItem('token', access_token)
-      sessionStorage.setItem('refreshToken', refresh_token)
-    } else {
-      // localStorage 持久化（有 XSS 风险）
-      localStorage.setItem('token', access_token)
-      localStorage.setItem('refreshToken', refresh_token)
-    }
+    // 统一使用 localStorage 持久化
+    localStorage.setItem('token', access_token)
+    localStorage.setItem('refreshToken', refresh_token)
   }
 
   // 登录
@@ -114,10 +107,10 @@ export const useAuthStore = defineStore('auth', () => {
 
       if (response.code === 0 && response.data) {
         const { access_token, refresh_token } = response.data
-
-        // 使用 sessionStorage 存储 token（更安全）
-        saveToken(access_token, refresh_token, true)
-
+  
+        // 使用 localStorage 存储 token（避免刷新丢失）
+        saveToken(access_token, refresh_token, false)
+  
         // 获取用户信息
         await fetchUserInfo()
         return true
@@ -182,8 +175,6 @@ export const useAuthStore = defineStore('auth', () => {
     token.value = null
     refreshToken.value = null
     user.value = null
-    sessionStorage.removeItem('token')
-    sessionStorage.removeItem('refreshToken')
     localStorage.removeItem('token')
     localStorage.removeItem('refreshToken')
   }
@@ -194,9 +185,15 @@ export const useAuthStore = defineStore('auth', () => {
       const response = await get<User>('/user/me')
       if (response.data) {
         user.value = response.data
+        // 同步 MFA 状态到 localStorage（供路由守卫使用）
+        if (response.data.mfaEnabled) {
+          localStorage.setItem('mfaEnabled', 'true')
+        } else {
+          localStorage.removeItem('mfaEnabled')
+        }
       }
     } catch (e) {
-      console.error('Failed to fetch user info:', e)
+      // 忽略错误，由拦截器处理
     }
   }
 

@@ -1,6 +1,5 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
-import { resolve } from 'path'
 import { fileURLToPath, URL } from 'node:url'
 
 // https://vitejs.dev/config/
@@ -59,8 +58,16 @@ export default defineConfig({
         drop_console: true,
         drop_debugger: true,
         pure_funcs: ['console.log'],
+        // 移除未使用的代码
+        pure_getters: true,
+        // 移除未使用的变量
+        unused: true,
       },
     },
+    // 压缩 CSS
+    cssCodeSplit: true,
+    // 压缩图片等资源
+    assetsInlineLimit: 4096,
   },
   // CSS 配置
   css: {

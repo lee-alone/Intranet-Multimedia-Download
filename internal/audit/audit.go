@@ -353,39 +353,34 @@ func (l *Logger) Query(userID *int64, action *ActionType, resourceType *Resource
 	defer l.mu.RUnlock()
 
 	query := `
-		SELECT id, user_id, action, resource_type, resource_id, ip_address, user_agent, detail, created_at
-		FROM audit_logs
-		WHERE 1=1
+	SELECT id, user_id, action, resource_type, resource_id, ip_address, user_agent, detail, created_at
+	FROM audit_logs
+	WHERE 1=1
 	`
 	args := []interface{}{}
-	argPos := 1
 
 	if userID != nil {
-		query += fmt.Sprintf(" AND user_id = $%d", argPos)
+		query += " AND user_id = ?"
 		args = append(args, *userID)
-		argPos++
 	}
 
 	if action != nil {
-		query += fmt.Sprintf(" AND action = $%d", argPos)
+		query += " AND action = ?"
 		args = append(args, string(*action))
-		argPos++
 	}
 
 	if resourceType != nil {
-		query += fmt.Sprintf(" AND resource_type = $%d", argPos)
+		query += " AND resource_type = ?"
 		args = append(args, string(*resourceType))
-		argPos++
 	}
 
 	query += " ORDER BY created_at DESC"
 	if limit > 0 {
-		query += fmt.Sprintf(" LIMIT $%d", argPos)
+		query += " LIMIT ?"
 		args = append(args, limit)
-		argPos++
 	}
 	if offset > 0 {
-		query += fmt.Sprintf(" OFFSET $%d", argPos)
+		query += " OFFSET ?"
 		args = append(args, offset)
 	}
 

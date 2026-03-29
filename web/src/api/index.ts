@@ -1,4 +1,17 @@
 import axios, { type AxiosInstance, type AxiosRequestConfig, type AxiosResponse } from 'axios'
+import { getErrorMessage, getNetworkErrorMessage } from '@/utils/errorMap'
+
+// 扩展 Window 接口以包含 toast
+declare global {
+  interface Window {
+    toast?: {
+      success: (message: string, duration?: number) => void
+      error: (message: string, duration?: number) => void
+      warning: (message: string, duration?: number) => void
+      info: (message: string, duration?: number) => void
+    }
+  }
+}
 
 // API 响应类型定义（与后端 API 规范一致）
 export interface ApiResponse<T = unknown> {
@@ -32,8 +45,8 @@ const api: AxiosInstance = axios.create({
 // 请求拦截器 - 添加认证 token
 api.interceptors.request.use(
   (config) => {
-    // 优先从 sessionStorage 获取 token（更安全）
-    const token = sessionStorage.getItem('token') || localStorage.getItem('token')
+    // 统一从 localStorage 获取 token
+    const token = localStorage.getItem('token')
     if (token) {
       config.headers.Authorization = `Bearer ${token}`
     }
@@ -51,21 +64,46 @@ api.interceptors.response.use(
   },
   (error) => {
     if (error.response) {
-      switch (error.response.status) {
-        case 401:
-          // 未授权，清除 token 并跳转登录
-          sessionStorage.removeItem('token')
-          localStorage.removeItem('token')
-          window.location.href = '/login'
-          break
-        case 403:
-          // 禁止访问
-          console.error('Access denied')
-          break
-        case 500:
-          // 服务器错误
-          console.error('Server error')
-          break
+      const status = error.response.status
+      const backendMessage = error.response.data?.message || ''
+
+      switch (status) {
+      case 401:
+        // 未授权，清除 token 并跳转登录
+        localStorage.removeItem('token')
+        // 使用 toast 显示错误消息
+        const authErrorMsg = getErrorMessage(backendMessage || '未授权，请先登录')
+        if (window.toast) {
+          window.toast.error(authErrorMsg)
+        }
+        window.location.href = '/login'
+        break
+      case 403:
+        // 禁止访问
+        const forbiddenMsg = getErrorMessage(backendMessage || '禁止访问')
+        if (window.toast) {
+          window.toast.error(forbiddenMsg)
+        }
+        break
+      case 500:
+        // 服务器错误
+        const serverErrorMsg = getErrorMessage(backendMessage || '服务器内部错误')
+        if (window.toast) {
+          window.toast.error(serverErrorMsg)
+        }
+        break
+      default:
+        // 其他错误使用 errorMap 映射
+        const defaultMsg = getErrorMessage(backendMessage || status.toString())
+        if (window.toast) {
+          window.toast.error(defaultMsg)
+        }
+      }
+    } else if (error.code) {
+      // 网络错误
+      const networkMsg = getNetworkErrorMessage(error.code)
+      if (window.toast) {
+        window.toast.error(networkMsg)
       }
     }
     return Promise.reject(error)
@@ -98,10 +136,10 @@ export async function del<T>(url: string, config?: AxiosRequestConfig): Promise<
 
 // WebSocket 连接工具函数（带 token 认证）
 export function createWebSocketUrl(path: string): string {
-  const token = sessionStorage.getItem('token') || localStorage.getItem('token')
+  const token = localStorage.getItem('token')
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
   const host = window.location.host || 'localhost:8080'
-  
+
   // 构建带 token 的 WebSocket URL
   const wsUrl = `${protocol}//${host}${path}?token=${token}`
   return wsUrl

@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/campus/collector/internal/audit"
 	"github.com/campus/collector/internal/auth"
 	"github.com/campus/collector/internal/engine"
 	"github.com/campus/collector/internal/middleware"
@@ -144,8 +145,14 @@ func setupTaskTest(t *testing.T) *testTaskSetup {
 	// 创建白名单管理器
 	whitelistMgr := middleware.NewWhitelistManager([]string{"example.com", "bilibili.com", "youtube.com"})
 
+	// 创建审计日志记录器（使用测试数据库）
+	auditLogger, err := audit.NewLogger(tmpDir, false)
+	if err != nil {
+		t.Fatalf("创建审计日志记录器失败：%v", err)
+	}
+
 	// 创建处理器
-	taskHandler := NewTaskHandler(db, scheduler, jwtMgr, whitelistMgr)
+	taskHandler := NewTaskHandler(db, scheduler, jwtMgr, whitelistMgr, auditLogger)
 
 	cleanup := func() {
 		scheduler.Shutdown()

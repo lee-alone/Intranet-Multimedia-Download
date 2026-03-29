@@ -172,8 +172,24 @@ func NewWebSocketHandler(db *sql.DB, jwtMgr *auth.JWTManager) *WebSocketHandler 
 			ReadBufferSize:  1024,
 			WriteBufferSize: 1024,
 			CheckOrigin: func(r *http.Request) bool {
-				// 允许所有来源（生产环境应限制）
-				return true
+				// 限制来源（生产环境）
+				origin := r.Header.Get("Origin")
+				allowedOrigins := []string{
+					"http://localhost:5173",
+					"http://localhost",
+					"http://127.0.0.1:5173",
+					"http://127.0.0.1",
+				}
+				for _, o := range allowedOrigins {
+					if origin == o {
+						return true
+					}
+				}
+				// 生产环境白名单（可从配置读取）
+				if origin == "https://your-domain.com" {
+					return true
+				}
+				return false
 			},
 		},
 	}

@@ -45,7 +45,7 @@ const maxReconnectAttempts = 5
 const lastProgressCache = ref<Map<number, SmoothedProgress>>(new Map()) // 离线缓存
 const offlineMessages = ref<OfflineMessage[]>([]) // 离线期间的消息队列
 const isOffline = ref(false) // 是否处于离线状态
-const cacheCleanupInterval = ref<number | null>(null) // 缓存清理定时器
+const cacheCleanupInterval = ref<ReturnType<typeof setInterval> | null>(null) // 缓存清理定时器
 
 // 状态样式映射
 const statusStyles: Record<string, string> = {
@@ -206,9 +206,7 @@ function getSmoothedProgress(taskId: number, progress: number): number {
 // 处理离线消息补发
 function processOfflineMessages() {
   if (offlineMessages.value.length === 0) return
-  
-  console.log(`处理 ${offlineMessages.value.length} 条离线消息`)
-  
+
   offlineMessages.value.forEach(msg => {
     const taskId = Number(msg.task_id)
     const index = tasks.value.findIndex(t => t.id === taskId)
@@ -250,7 +248,6 @@ async function fetchTasks() {
       }
     }
   } catch (e: any) {
-    console.error('获取任务列表失败:', e)
     if (e.response?.status === 401) {
       error.value = '未授权，请重新登录'
     } else {
@@ -282,12 +279,48 @@ async function cancelTask(taskId: number) {
       alert(response.message || '取消失败')
     }
   } catch (e: any) {
-    console.error('取消任务失败:', e)
     alert('取消任务失败，请稍后重试')
-  }
-}
-
-// 删除任务
+    	}
+    }
+    
+    // 下载文件
+    async function downloadTask(taskId: number) {
+      const token = localStorage.getItem('token')
+  
+      try {
+    		const response = await fetch(`/api/v1/tasks/${taskId}/download`, {
+    			headers: {
+    				'Authorization': `Bearer ${token}`
+    			}
+    		})
+    		
+    		if (!response.ok) {
+    			const error = await response.json().catch(() => ({ error: '下载失败' }))
+    			throw new Error(error.error || `HTTP ${response.status}`)
+    		}
+    		
+    		// 获取文件名
+    		const disposition = response.headers.get('Content-Disposition')
+    		const filename = disposition
+    			? disposition.split('filename=')[1]?.replace(/"/g, '')
+    			: `【教学引用】${taskId}.mp4`
+    		
+    		// 创建 Blob 并触发下载
+    		const blob = await response.blob()
+    		const url = window.URL.createObjectURL(blob)
+    		const a = document.createElement('a')
+    		a.href = url
+    		a.download = filename || `【教学引用】${taskId}.mp4`
+    		document.body.appendChild(a)
+    		a.click()
+    		document.body.removeChild(a)
+    		window.URL.revokeObjectURL(url)
+    	} catch (e: any) {
+    	  alert(e.message || '下载失败，请稍后重试')
+    	}
+    }
+    
+    // 删除任务
 async function deleteTask(taskId: number) {
   if (!confirm('确定要删除这个任务吗？')) return
 
@@ -299,7 +332,6 @@ async function deleteTask(taskId: number) {
       alert(response.message || '删除失败')
     }
   } catch (e: any) {
-    console.error('删除任务失败:', e)
     alert('删除任务失败，请稍后重试')
   }
 }
@@ -335,7 +367,7 @@ function connectSSE() {
 
   try {
     // 使用 EventSource 进行 SSE 连接
-    const token = localStorage.getItem('token') || sessionStorage.getItem('token')
+    const token = localStorage.getItem('token')
     const url = createWebSocketUrl('/api/v1/progress')
     const fullUrl = `${url}${url.includes('?') ? '&' : '?'}token=${token}`
     
@@ -343,34 +375,30 @@ function connectSSE() {
     eventSource.value = es
 
     es.onopen = () => {
-      console.log('SSE 连接成功')
       reconnectAttempts.value = 0
       isOffline.value = false
     }
-
+  
     es.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data)
         handleSSEMessage(data)
       } catch (e) {
-        console.error('解析 SSE 消息失败:', e)
+        // 忽略解析错误
       }
     }
-
+  
     es.onerror = (error) => {
-      console.error('SSE 错误:', error)
       isOffline.value = true
-      
+  
       // 错误时切换到轮询降级方案
       if (reconnectAttempts.value >= maxReconnectAttempts) {
-        console.log('SSE 连接失败次数过多，切换到轮询模式')
         usePolling.value = true
         es.close()
         startPolling()
       } else {
         reconnectAttempts.value++
         const delay = Math.min(1000 * Math.pow(2, reconnectAttempts.value), 30000)
-        console.log(`${delay}ms 后尝试重连...`)
         setTimeout(() => {
           if (!usePolling.value) {
             connectSSE()
@@ -379,7 +407,6 @@ function connectSSE() {
       }
     }
   } catch (e) {
-    console.error('SSE 连接失败:', e)
     // 降级到轮询
     usePolling.value = true
     startPolling()
@@ -423,7 +450,6 @@ function handleSSEMessage(data: any) {
 
 // 轮询降级方案
 function startPolling() {
-  console.log('开始轮询模式')
   if (pollTimer) {
     clearInterval(pollTimer)
   }
@@ -582,16 +608,28 @@ onBeforeUnmount(() => {
                 >
                   取消
                 </button>
-                <!-- 删除 -->
-                <button
-                  v-if="task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled'"
-                  @click="deleteTask(task.id)"
-                  class="text-red-600 hover:text-red-900"
-                  title="删除"
-                >
-                  删除
-                </button>
-              </div>
+                <!-- 下载 -->
+                		<button
+                		v-if="task.status === 'completed'"
+                		@click="downloadTask(task.id)"
+                		class="text-green-600 hover:text-green-900 flex items-center"
+                		title="下载"
+                		>
+                		<svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                		<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                		</svg>
+                		下载
+                		</button>
+                		<!-- 删除 -->
+                		<button
+                		v-if="task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled'"
+                		@click="deleteTask(task.id)"
+                		class="text-red-600 hover:text-red-900"
+                		title="删除"
+                		>
+                		删除
+                		</button>
+                		</div>
             </td>
           </tr>
         </tbody>

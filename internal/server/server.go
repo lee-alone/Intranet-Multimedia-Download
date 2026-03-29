@@ -165,8 +165,8 @@ func (s *Server) registerRoutes() {
 	// 创建认证处理器（传入审计日志记录器）
 	authHandler := handler.NewAuthHandler(s.db, s.jwtMgr, s.ldap, s.auditLogger)
 
-	// 创建任务处理器（传入白名单管理器）
-	taskHandler := handler.NewTaskHandler(s.db, s.scheduler, s.jwtMgr, s.whitelistMgr)
+	// 创建任务处理器（传入白名单管理器和审计日志记录器）
+	taskHandler := handler.NewTaskHandler(s.db, s.scheduler, s.jwtMgr, s.whitelistMgr, s.auditLogger)
 
 	// 创建 WebSocket/进度流处理器（传入 db 用于权限验证）
 	wsHandler := handler.NewWebSocketHandler(s.db, s.jwtMgr)
@@ -205,11 +205,19 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/api/v1/register", authHandler.Register)
 	s.mux.HandleFunc("/api/v1/token/refresh", authHandler.RefreshToken)
 
-	// 需要认证的路由
-	s.mux.Handle("/api/v1/logout", handler.AuthMiddleware(s.jwtMgr)(http.HandlerFunc(authHandler.Logout)))
-
-	// 任务相关路由（需要认证）
+	// 需要认证的路由中间件
 	authMiddleware := handler.AuthMiddleware(s.jwtMgr)
+
+	// MFA 相关路由
+	s.mux.Handle("/api/v1/mfa/generate", authMiddleware(http.HandlerFunc(authHandler.GenerateMFA)))
+	s.mux.Handle("/api/v1/mfa/verify", authMiddleware(http.HandlerFunc(authHandler.VerifyMFA)))
+	s.mux.Handle("/api/v1/mfa/status", authMiddleware(http.HandlerFunc(authHandler.GetMFAStatus)))
+
+	// 审计日志路由
+	s.mux.Handle("/api/v1/audit/logs", authMiddleware(http.HandlerFunc(authHandler.GetAuditLogs)))
+
+	// 需要认证的路由
+	s.mux.Handle("/api/v1/logout", authMiddleware(http.HandlerFunc(authHandler.Logout)))
 
 	// 批量任务路由
 	s.mux.Handle("/api/v1/tasks/batch", authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -240,6 +248,11 @@ func (s *Server) registerRoutes() {
 		// 路径格式: /api/v1/tasks/{id}
 		if len(parts) == 4 && parts[3] != "" && r.Method == http.MethodDelete {
 			taskHandler.CancelTask(w, r)
+			return
+		}
+		// 路径格式：/api/v1/tasks/{id}/download
+		if len(parts) == 5 && parts[4] == "download" && r.Method == http.MethodGet {
+			taskHandler.DownloadFile(w, r)
 			return
 		}
 		http.NotFound(w, r)

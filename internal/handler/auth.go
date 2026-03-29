@@ -5,12 +5,14 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"time"
 
 	"github.com/campus/collector/internal/audit"
 	"github.com/campus/collector/internal/auth"
+	"github.com/pquerna/otp/totp"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -296,6 +298,305 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// MFARequest MFA 请求
+type MFARequest struct {
+	Enabled bool   `json:"enabled"`
+	Code    string `json:"code,omitempty"`
+}
+
+// MFAResponse MFA 响应
+type MFAResponse struct {
+	Success bool   `json:"success"`
+	Secret  string `json:"secret,omitempty"`
+	URI     string `json:"uri,omitempty"`
+	Message string `json:"message,omitempty"`
+}
+
+// GenerateMFA 生成 MFA 配置
+func (h *AuthHandler) GenerateMFA(w http.ResponseWriter, r *http.Request) {
+	claims, ok := r.Context().Value("claims").(*auth.Claims)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	// 获取用户信息
+	var userID int
+	var mfaEnabled bool
+	var mfaSecret sql.NullString
+	err := h.db.QueryRow(
+		"SELECT id, mfa_enabled, mfa_secret FROM users WHERE id = ?",
+		claims.UserID,
+	).Scan(&userID, &mfaEnabled, &mfaSecret)
+
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Failed to get user info")
+		return
+	}
+
+	// 如果已启用 MFA，返回错误
+	if mfaEnabled {
+		writeJSON(w, http.StatusOK, MFAResponse{
+			Success: false,
+			Message: "MFA already enabled",
+		})
+		return
+	}
+
+	// 生成新的 MFA 密钥
+	// 使用 totp.Generate 生成密钥
+	key, err := totp.Generate(totp.GenerateOpts{
+		Issuer:      "Campus Collector",
+		AccountName: claims.Username,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Failed to generate MFA secret")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, MFAResponse{
+		Success: true,
+		Secret:  key.Secret(),
+		URI:     key.URL(),
+	})
+}
+
+// VerifyMFA 验证 MFA 代码
+func (h *AuthHandler) VerifyMFA(w http.ResponseWriter, r *http.Request) {
+	claims, ok := r.Context().Value("claims").(*auth.Claims)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	var req MFARequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	// 获取用户信息
+	var userID int
+	var mfaEnabled bool
+	var mfaSecret sql.NullString
+	var username string
+	err := h.db.QueryRow(
+		"SELECT id, username, mfa_enabled, mfa_secret FROM users WHERE id = ?",
+		claims.UserID,
+	).Scan(&userID, &username, &mfaEnabled, &mfaSecret)
+
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Failed to get user info")
+		return
+	}
+
+	if req.Enabled {
+		// 启用 MFA - 需要验证代码
+		if req.Code == "" {
+			writeJSON(w, http.StatusOK, MFAResponse{
+				Success: false,
+				Message: "Verification code required",
+			})
+			return
+		}
+
+		// 验证 TOTP 代码
+		if !totp.Validate(req.Code, mfaSecret.String) {
+			writeJSON(w, http.StatusOK, MFAResponse{
+				Success: false,
+				Message: "Invalid verification code",
+			})
+			return
+		}
+
+		// 更新数据库
+		_, err = h.db.Exec(
+			"UPDATE users SET mfa_enabled = 1, mfa_secret = ? WHERE id = ?",
+			mfaSecret.String,
+			userID,
+		)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "Failed to enable MFA")
+			return
+		}
+
+		// 记录审计日志
+		h.auditLog(r, userID, "mfa_enable", "user", userID, "MFA enabled")
+
+		writeJSON(w, http.StatusOK, MFAResponse{
+			Success: true,
+			Message: "MFA enabled successfully",
+		})
+	} else {
+		// 禁用 MFA - 如果已启用且提供了代码，需要验证
+		if mfaEnabled {
+			if req.Code == "" || !totp.Validate(req.Code, mfaSecret.String) {
+				writeJSON(w, http.StatusOK, MFAResponse{
+					Success: false,
+					Message: "Invalid verification code",
+				})
+				return
+			}
+		}
+
+		// 更新数据库
+		_, err = h.db.Exec(
+			"UPDATE users SET mfa_enabled = 0, mfa_secret = NULL WHERE id = ?",
+			userID,
+		)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "Failed to disable MFA")
+			return
+		}
+
+		// 记录审计日志
+		h.auditLog(r, userID, "mfa_disable", "user", userID, "MFA disabled")
+
+		writeJSON(w, http.StatusOK, MFAResponse{
+			Success: true,
+			Message: "MFA disabled successfully",
+		})
+	}
+}
+
+// GetMFAStatus 获取 MFA 状态
+func (h *AuthHandler) GetMFAStatus(w http.ResponseWriter, r *http.Request) {
+	claims, ok := r.Context().Value("claims").(*auth.Claims)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	var mfaEnabled bool
+	err := h.db.QueryRow(
+		"SELECT mfa_enabled FROM users WHERE id = ?",
+		claims.UserID,
+	).Scan(&mfaEnabled)
+
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Failed to get MFA status")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"success":    true,
+		"mfaEnabled": mfaEnabled,
+	})
+}
+
+// GetAuditLogs 获取审计日志（需要 MFA 验证）
+func (h *AuthHandler) GetAuditLogs(w http.ResponseWriter, r *http.Request) {
+	claims, ok := r.Context().Value("claims").(*auth.Claims)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	// 获取 MFA 验证码
+	code := r.URL.Query().Get("code")
+	if code == "" {
+		writeJSON(w, http.StatusForbidden, map[string]interface{}{
+			"success": false,
+			"message": "MFA verification code required",
+		})
+		return
+	}
+
+	// 获取用户的 MFA 密钥
+	var mfaEnabled bool
+	var mfaSecret sql.NullString
+	err := h.db.QueryRow(
+		"SELECT mfa_enabled, mfa_secret FROM users WHERE id = ?",
+		claims.UserID,
+	).Scan(&mfaEnabled, &mfaSecret)
+
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Failed to get user info")
+		return
+	}
+
+	// 验证 MFA 代码
+	if !mfaEnabled || !totp.Validate(code, mfaSecret.String) {
+		writeJSON(w, http.StatusForbidden, map[string]interface{}{
+			"success": false,
+			"message": "Invalid MFA verification code",
+		})
+		return
+	}
+
+	// 获取查询参数（带错误处理和限制）
+	limit := 100
+	offset := 0
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if _, err := fmt.Sscanf(l, "%d", &limit); err != nil {
+			limit = 100
+		}
+		// 限制最大值
+		if limit > 1000 {
+			limit = 1000
+		}
+	}
+	if o := r.URL.Query().Get("offset"); o != "" {
+		if _, err := fmt.Sscanf(o, "%d", &offset); err != nil {
+			offset = 0
+		}
+	}
+
+	// 查询审计日志
+	userID := int64(claims.UserID)
+	logs, err := h.auditLogger.Query(&userID, nil, nil, limit, offset)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Failed to query audit logs")
+		return
+	}
+
+	// 转换日志格式
+	type AuditLogResponse struct {
+		ID           int64     `json:"id"`
+		UserID       *int64    `json:"user_id,omitempty"`
+		Action       string    `json:"action"`
+		ResourceType *string   `json:"resource_type,omitempty"`
+		ResourceID   *int64    `json:"resource_id,omitempty"`
+		IPAddress    string    `json:"ip_address"`
+		UserAgent    string    `json:"user_agent"`
+		Detail       string    `json:"detail"`
+		CreatedAt    time.Time `json:"created_at"`
+	}
+
+	var response []AuditLogResponse
+	for _, log := range logs {
+		detailJSON := "{}"
+		if log.Detail != nil {
+			detailBytes, _ := json.Marshal(log.Detail)
+			detailJSON = string(detailBytes)
+		}
+
+		var rtStr *string
+		if log.ResourceType != nil {
+			s := string(*log.ResourceType)
+			rtStr = &s
+		}
+
+		response = append(response, AuditLogResponse{
+			ID:           log.ID,
+			UserID:       log.UserID,
+			Action:       string(log.Action),
+			ResourceType: rtStr,
+			ResourceID:   log.ResourceID,
+			IPAddress:    log.IPAddress,
+			UserAgent:    log.UserAgent,
+			Detail:       detailJSON,
+			CreatedAt:    log.CreatedAt,
+		})
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"data":    response,
+		"total":   len(response),
+	})
+}
+
 // auditLog 记录审计日志
 func (h *AuthHandler) auditLog(r *http.Request, userID int, action, resourceType string, resourceID int, detail string) {
 	ip := getClientIP(r)
@@ -371,18 +672,26 @@ func writeError(w http.ResponseWriter, status int, message string) {
 func AuthMiddleware(jwtMgr *auth.JWTManager) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var tokenString string
+			var err error
+
+			// 优先从 Authorization Header 读取
 			authHeader := r.Header.Get("Authorization")
-			if authHeader == "" {
-				writeError(w, http.StatusUnauthorized, "Missing authorization header")
-				return
+			if authHeader != "" {
+				if len(authHeader) < 7 || authHeader[:7] != "Bearer " {
+					writeError(w, http.StatusUnauthorized, "Invalid authorization header format")
+					return
+				}
+				tokenString = authHeader[7:]
+			} else {
+				// 降级：从 URL 参数读取（仅用于下载等特定场景）
+				tokenString = r.URL.Query().Get("token")
+				if tokenString == "" {
+					writeError(w, http.StatusUnauthorized, "Missing authorization token")
+					return
+				}
 			}
 
-			if len(authHeader) < 7 || authHeader[:7] != "Bearer " {
-				writeError(w, http.StatusUnauthorized, "Invalid authorization header format")
-				return
-			}
-
-			tokenString := authHeader[7:]
 			claims, err := jwtMgr.ValidateToken(tokenString)
 			if err != nil {
 				writeError(w, http.StatusUnauthorized, "Invalid or expired token")
