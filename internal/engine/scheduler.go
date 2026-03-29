@@ -237,6 +237,8 @@ func (s *TaskScheduler) AddTask(task *Task) error {
 }
 
 func (s *TaskScheduler) executeTask(task *Task) {
+	defer func() { <-s.semaphore }() // 释放信号量
+
 	// 使用 TransitionStatus 进行状态转换
 	if err := task.TransitionStatus(TaskStatusDownloading); err != nil {
 		log.Printf("任务 %s 状态转换失败：%v", task.ID, err)
@@ -261,6 +263,8 @@ func (s *TaskScheduler) executeTask(task *Task) {
 		task.TransitionStatus(TaskStatusFailed)
 		task.Error = fmt.Errorf("下载失败：%s", lastProgress.Status)
 	} else {
+		// 先转换到 Merging 状态，然后再转换到 Completed
+		task.TransitionStatus(TaskStatusMerging)
 		task.TransitionStatus(TaskStatusCompleted)
 		task.CompletedAt = time.Now()
 	}

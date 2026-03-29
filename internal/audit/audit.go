@@ -39,6 +39,10 @@ const (
 	ActionMFAEnable ActionType = "mfa_enable"
 	// ActionMFADisable 禁用 MFA
 	ActionMFADisable ActionType = "mfa_disable"
+	// ActionSSOLogin SSO 登录
+	ActionSSOLogin ActionType = "sso_login"
+	// ActionAgreeAgreement 同意协议
+	ActionAgreeAgreement ActionType = "agree_agreement"
 )
 
 // ResourceType 定义资源类型

@@ -43,6 +43,27 @@ type AuthConfig struct {
 	TokenExpiry   int        `yaml:"token_expiry"`   // 分钟
 	RefreshExpiry int        `yaml:"refresh_expiry"` // 分钟
 	LDAP          LDAPConfig `yaml:"ldap"`
+	SSO           SSOConfig  `yaml:"sso"`
+}
+
+// SSOConfig SSO 配置
+type SSOConfig struct {
+	Enabled    bool         `yaml:"enabled"`
+	Provider   string       `yaml:"provider"` // "cas" or "oauth2"
+	CASURL     string       `yaml:"cas_url"`
+	CASService string       `yaml:"cas_service"`
+	OAuth2     OAuth2Config `yaml:"oauth2"`
+}
+
+// OAuth2Config OAuth2 配置
+type OAuth2Config struct {
+	ClientID     string   `yaml:"client_id"`
+	ClientSecret string   `yaml:"client_secret"`
+	AuthURL      string   `yaml:"auth_url"`
+	TokenURL     string   `yaml:"token_url"`
+	UserInfoURL  string   `yaml:"user_info_url"`
+	Scopes       []string `yaml:"scopes"`
+	RedirectURL  string   `yaml:"redirect_url"`
 }
 
 // LDAPConfig LDAP 配置

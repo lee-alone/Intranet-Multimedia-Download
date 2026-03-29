@@ -89,6 +89,32 @@ func New(cfg *config.Config, db *sql.DB, scheduler *engine.TaskScheduler) (*Serv
 		cfg.Auth.LDAP.Enabled,
 	)
 
+	// 创建 SSO 客户端
+	var ssoClient *auth.SSOClient
+	if cfg.Auth.SSO.Enabled {
+		ssoConfig := &auth.SSOConfig{
+			Provider:   auth.SSOProvider(cfg.Auth.SSO.Provider),
+			Enabled:    cfg.Auth.SSO.Enabled,
+			CASURL:     cfg.Auth.SSO.CASURL,
+			CASService: cfg.Auth.SSO.CASService,
+		}
+		if cfg.Auth.SSO.OAuth2.ClientID != "" {
+			ssoConfig.OAuth2Config = &auth.OAuth2Config{
+				ClientID:     cfg.Auth.SSO.OAuth2.ClientID,
+				ClientSecret: cfg.Auth.SSO.OAuth2.ClientSecret,
+				AuthURL:      cfg.Auth.SSO.OAuth2.AuthURL,
+				TokenURL:     cfg.Auth.SSO.OAuth2.TokenURL,
+				UserInfoURL:  cfg.Auth.SSO.OAuth2.UserInfoURL,
+				Scopes:       cfg.Auth.SSO.OAuth2.Scopes,
+				RedirectURL:  cfg.Auth.SSO.OAuth2.RedirectURL,
+			}
+		}
+		ssoClient = auth.NewSSOClient(ssoConfig)
+	}
+
+	// 保存 SSO 客户端到 server 结构体（在后面的代码中使用）
+	_ = ssoClient
+
 	// 创建审计日志记录器
 	auditLogger, err := audit.NewLogger(cfg.Log.Dir, true)
 	if err != nil {
@@ -165,6 +191,28 @@ func (s *Server) registerRoutes() {
 	// 创建认证处理器（传入审计日志记录器）
 	authHandler := handler.NewAuthHandler(s.db, s.jwtMgr, s.ldap, s.auditLogger)
 
+	// 设置 SSO 客户端（如果已配置）
+	if s.cfg.Auth.SSO.Enabled {
+		ssoConfig := &auth.SSOConfig{
+			Provider:   auth.SSOProvider(s.cfg.Auth.SSO.Provider),
+			Enabled:    s.cfg.Auth.SSO.Enabled,
+			CASURL:     s.cfg.Auth.SSO.CASURL,
+			CASService: s.cfg.Auth.SSO.CASService,
+		}
+		if s.cfg.Auth.SSO.OAuth2.ClientID != "" {
+			ssoConfig.OAuth2Config = &auth.OAuth2Config{
+				ClientID:     s.cfg.Auth.SSO.OAuth2.ClientID,
+				ClientSecret: s.cfg.Auth.SSO.OAuth2.ClientSecret,
+				AuthURL:      s.cfg.Auth.SSO.OAuth2.AuthURL,
+				TokenURL:     s.cfg.Auth.SSO.OAuth2.TokenURL,
+				UserInfoURL:  s.cfg.Auth.SSO.OAuth2.UserInfoURL,
+				Scopes:       s.cfg.Auth.SSO.OAuth2.Scopes,
+				RedirectURL:  s.cfg.Auth.SSO.OAuth2.RedirectURL,
+			}
+		}
+		authHandler.SetSSOClient(auth.NewSSOClient(ssoConfig))
+	}
+
 	// 创建任务处理器（传入白名单管理器和审计日志记录器）
 	taskHandler := handler.NewTaskHandler(s.db, s.scheduler, s.jwtMgr, s.whitelistMgr, s.auditLogger)
 
@@ -205,6 +253,16 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/api/v1/register", authHandler.Register)
 	s.mux.HandleFunc("/api/v1/token/refresh", authHandler.RefreshToken)
 
+	// SSO 登录路由
+	s.mux.HandleFunc("/api/v1/sso/login", authHandler.HandleSSOLogin)
+	s.mux.HandleFunc("/api/v1/sso/callback", authHandler.HandleSSOCallback)
+	s.mux.HandleFunc("/api/v1/sso/status", authHandler.GetSSOStatus)
+	s.mux.HandleFunc("/api/v1/sso/login-url", authHandler.GetSSOLoginURL)
+
+	// 协议相关路由
+	s.mux.HandleFunc("/api/v1/agreement/status", authHandler.GetAgreementStatus)
+	s.mux.HandleFunc("/api/v1/agreement/text", authHandler.GetAgreementText)
+
 	// 需要认证的路由中间件
 	authMiddleware := handler.AuthMiddleware(s.jwtMgr)
 
@@ -219,7 +277,54 @@ func (s *Server) registerRoutes() {
 	// 需要认证的路由
 	s.mux.Handle("/api/v1/logout", authMiddleware(http.HandlerFunc(authHandler.Logout)))
 
+	// 协议同意路由（需要认证）
+	s.mux.Handle("/api/v1/agreement/agree", authMiddleware(http.HandlerFunc(authHandler.AgreeToAgreement)))
+
+	// 协议同意中间件（可选：用于需要协议同意的路由）
+	// 使用方式：agreementMiddleware := authHandler.AgreementManager().CheckAgreementMiddleware("/api/v1/agreement/*")
+	// 当前实现：在 handler 中手动检查 HasAgreed()
+	// 未来可以：使用 agreementMiddleware 包装需要协议同意的路由，例如：
+	// agreementMiddleware := authHandler.AgreementManager().CheckAgreementMiddleware("/api/v1/agreement/status", "/api/v1/agreement/text", "/api/v1/agreement/agree")
+	// s.mux.Handle("/api/v1/tasks/batch", agreementMiddleware(authMiddleware(http.HandlerFunc(taskHandler.CreateBatchTask))))
+
 	// 批量任务路由
+	s.mux.Handle("/api/v1/tasks/batch", authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPost:
+			taskHandler.CreateBatchTask(w, r)
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	})))
+
+	// 批量任务进度查询路由
+	s.mux.Handle("/api/v1/tasks/batch/", authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// 检查是否是批量任务进度查询
+		path := r.URL.Path
+		if strings.HasPrefix(path, "/api/v1/tasks/batch/") && len(strings.Split(path, "/")) == 5 {
+			taskHandler.GetBatchProgress(w, r)
+			return
+		}
+		http.NotFound(w, r)
+	})))
+
+	// 单任务取消路由
+	s.mux.Handle("/api/v1/tasks/", authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// 检查是否是单任务操作
+		path := r.URL.Path
+		parts := strings.Split(path, "/")
+		// 路径格式：/api/v1/tasks/{id}
+		if len(parts) == 4 && parts[3] != "" && r.Method == http.MethodDelete {
+			taskHandler.CancelTask(w, r)
+			return
+		}
+		// 路径格式：/api/v1/tasks/{id}/download
+		if len(parts) == 5 && parts[4] == "download" && r.Method == http.MethodGet {
+			taskHandler.DownloadFile(w, r)
+			return
+		}
+		http.NotFound(w, r)
+	})))
 	s.mux.Handle("/api/v1/tasks/batch", authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodPost:
