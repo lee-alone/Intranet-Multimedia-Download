@@ -6,13 +6,16 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"log"
 	"net/http"
+	"net/url"
 	"os/exec"
 	"strings"
 	"sync"
 	"time"
 
+	collector "github.com/campus/collector"
 	"github.com/campus/collector/internal/alert"
 	"github.com/campus/collector/internal/audit"
 	"github.com/campus/collector/internal/auth"
@@ -22,6 +25,10 @@ import (
 	"github.com/campus/collector/internal/logrotate"
 	"github.com/campus/collector/internal/middleware"
 )
+
+// WebFS 嵌入的前端资源文件系统
+// 从根包导入
+var WebFS = collector.WebFS
 
 // Server 表示 HTTP 服务器
 type Server struct {
@@ -250,6 +257,9 @@ func (s *Server) Shutdown(ctx context.Context) error {
 
 // registerRoutes 注册所有路由
 func (s *Server) registerRoutes() {
+	// 注册静态文件服务（前端资源）
+	s.registerStaticFiles()
+
 	// 创建认证处理器（传入审计日志记录器）
 	authHandler := handler.NewAuthHandler(s.db, s.jwtMgr, s.ldap, s.auditLogger)
 
@@ -611,4 +621,48 @@ func (s *Server) apiMetricsHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(metrics)
+}
+
+// registerStaticFiles 注册静态文件服务（前端资源）
+func (s *Server) registerStaticFiles() {
+	// 使用嵌入的 WebFS 提供前端资源
+	// 从 embed.FS 获取子目录 web/dist
+	webFS, err := fs.Sub(WebFS, "web/dist")
+	if err != nil {
+		// 如果嵌入失败，使用本地文件系统作为后备
+		webFS = nil
+	}
+
+	// 如果嵌入文件系统可用，使用它
+	if webFS != nil {
+		// 注册静态文件处理器
+		fileServer := http.FileServer(http.FS(webFS))
+
+		// 根路径 - 提供前端资源
+		s.mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			// 如果是 API 路径，跳过静态文件处理
+			if strings.HasPrefix(r.URL.Path, "/api/") {
+				http.NotFound(w, r)
+				return
+			}
+
+			// 处理 SPA 路由 - 所有非文件请求都返回 index.html
+			path := r.URL.Path
+			if path != "/" {
+				// 检查文件是否存在
+				cleanPath := strings.TrimPrefix(path, "/")
+				if _, err := fs.Stat(webFS, cleanPath); err != nil {
+					// 文件不存在，返回 index.html（SPA 路由）
+					path = "/index.html"
+				}
+			}
+
+			// 重写到文件系统中的实际路径
+			r2 := r.WithContext(r.Context())
+			r2.URL = &url.URL{}
+			*r2.URL = *r.URL
+			r2.URL.Path = strings.TrimPrefix(path, "/")
+			fileServer.ServeHTTP(w, r2)
+		})
+	}
 }
