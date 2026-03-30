@@ -267,8 +267,18 @@ func (c *Client) writePump() {
 	ticker := time.NewTicker(30 * time.Second)
 	defer func() {
 		ticker.Stop()
-		c.conn.Close()
+		if c.conn != nil {
+			c.conn.Close()
+		}
 	}()
+
+	// 如果连接为 nil，只消费消息但不写入
+	if c.conn == nil {
+		for range c.send {
+			// 消费消息但不处理
+		}
+		return
+	}
 
 	for {
 		select {
@@ -298,9 +308,16 @@ func (c *Client) writePump() {
 
 // readPump 从 WebSocket 读取消息（处理心跳响应）
 func (c *Client) readPump() {
+	// 如果没有连接，直接返回
+	if c.conn == nil {
+		return
+	}
+
 	defer func() {
 		c.hub.unregister <- c
-		c.conn.Close()
+		if c.conn != nil {
+			c.conn.Close()
+		}
 	}()
 
 	for {

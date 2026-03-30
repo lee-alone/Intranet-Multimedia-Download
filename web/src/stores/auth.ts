@@ -103,19 +103,22 @@ export const useAuthStore = defineStore('auth', () => {
         auth_type: type,
       }
 
-      const response = await post<TokenData>('/auth/login', loginData)
+      const response = await post<TokenData>('/login', loginData)
 
-      if (response.code === 0 && response.data) {
+      // 检查响应：支持 code=0 或 success=true 两种格式
+      const isSuccess = response.code === 0 || response.success === true
+      
+      if (isSuccess && response.data) {
         const { access_token, refresh_token } = response.data
-  
+
         // 使用 localStorage 存储 token（避免刷新丢失）
         saveToken(access_token, refresh_token, false)
-  
+
         // 获取用户信息
         await fetchUserInfo()
         return true
       } else {
-        error.value = response.message || '登录失败'
+        error.value = response.message || response.error || '登录失败'
         return false
       }
     } catch (e: any) {
@@ -139,17 +142,20 @@ export const useAuthStore = defineStore('auth', () => {
     error.value = null
 
     try {
-      const response: ApiResponse = await post('/auth/register', { username, password, email })
+      const response: ApiResponse = await post('/register', { username, password, email })
 
-      if (response.code === 0) {
+      // 检查响应：支持 code=0 或 success=true 两种格式
+      const isSuccess = response.code === 0 || response.success === true
+      
+      if (isSuccess) {
         return true
       } else {
-        error.value = response.message || '注册失败'
+        error.value = response.message || response.error || '注册失败'
         return false
       }
     } catch (e: any) {
       if (e.response?.status === 400) {
-        error.value = e.response.data?.message || '注册失败，用户名可能已存在'
+        error.value = e.response.data?.message || e.response.data?.error || '注册失败，用户名可能已存在'
       } else {
         error.value = '注册失败，请检查网络连接'
       }

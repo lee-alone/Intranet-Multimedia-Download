@@ -135,6 +135,12 @@ func TestWebSocketHandler_HandleProgressStream(t *testing.T) {
 	setup := setupWebSocketTest(t)
 	defer setup.cleanup()
 
+	// 插入测试任务，以便权限检查通过
+	_, err := setup.db.Exec(`INSERT INTO tasks (id, user_id, url, status) VALUES ('test-123', 1, 'https://example.com/video', 'queued')`)
+	if err != nil {
+		t.Fatalf("插入测试任务失败：%v", err)
+	}
+
 	token := generateTestToken(t, setup.jwtMgr, 1, "user")
 
 	// 创建请求
@@ -214,6 +220,12 @@ func TestWebSocketHandler_WebSocket(t *testing.T) {
 	setup := setupWebSocketTest(t)
 	defer setup.cleanup()
 
+	// 插入测试任务，以便权限检查通过
+	_, err := setup.db.Exec(`INSERT INTO tasks (id, user_id, url, status) VALUES ('test-123', 1, 'https://example.com/video', 'queued')`)
+	if err != nil {
+		t.Fatalf("插入测试任务失败：%v", err)
+	}
+
 	token := generateTestToken(t, setup.jwtMgr, 1, "user")
 
 	// 创建测试服务器
@@ -225,8 +237,14 @@ func TestWebSocketHandler_WebSocket(t *testing.T) {
 	// WebSocket URL
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "?token=" + token + "&task_id=test-123"
 
-	// 连接 WebSocket
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	// 设置 Origin 头，用于 WebSocket 握手
+	websocket.DefaultDialer.ReadBufferSize = 1024
+	websocket.DefaultDialer.WriteBufferSize = 1024
+
+	// 连接 WebSocket，设置 Origin 头
+	headers := http.Header{}
+	headers.Set("Origin", "http://localhost:5173")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, headers)
 	if err != nil {
 		t.Fatalf("WebSocket 连接失败：%v", err)
 	}

@@ -270,18 +270,19 @@ async function cancelTask(taskId: number) {
 
   try {
     const response = await del(`/tasks/${taskId}`)
-    if (response.code === 0) {
+    // 支持 code=0 或 success=true 两种格式
+    if (response.code === 0 || response.success === true) {
       const index = tasks.value.findIndex(t => t.id === taskId)
       if (index !== -1) {
         tasks.value[index] = { ...tasks.value[index], status: 'cancelled' }
       }
     } else {
-      alert(response.message || '取消失败')
+      alert(response.message || response.error || '取消失败')
     }
   } catch (e: any) {
     alert('取消任务失败，请稍后重试')
-    	}
-    }
+  }
+}
     
     // 下载文件
     async function downloadTask(taskId: number) {
@@ -326,10 +327,11 @@ async function deleteTask(taskId: number) {
 
   try {
     const response = await del(`/tasks/${taskId}`)
-    if (response.code === 0) {
+    // 支持 code=0 或 success=true 两种格式
+    if (response.code === 0 || response.success === true) {
       tasks.value = tasks.value.filter(t => t.id !== taskId)
     } else {
-      alert(response.message || '删除失败')
+      alert(response.message || response.error || '删除失败')
     }
   } catch (e: any) {
     alert('删除任务失败，请稍后重试')
@@ -387,8 +389,8 @@ function connectSSE() {
         // 忽略解析错误
       }
     }
-  
-    es.onerror = (error) => {
+
+    es.onerror = (_error) => {
       isOffline.value = true
   
       // 错误时切换到轮询降级方案

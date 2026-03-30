@@ -15,8 +15,10 @@ declare global {
 
 // API 响应类型定义（与后端 API 规范一致）
 export interface ApiResponse<T = unknown> {
-  code: number      // 错误码：0 表示成功
-  message: string   // 消息
+  code?: number     // 错误码：0 表示成功（兼容字段）
+  success?: boolean // 是否成功（后端使用）
+  message?: string  // 消息
+  error?: string    // 错误信息（兼容字段）
   data?: T          // 数据
 }
 

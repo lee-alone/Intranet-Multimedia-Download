@@ -143,18 +143,29 @@ func (h *TaskHandler) CreateBatchTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 验证并清理 URL
+	// 验证并清理 URL，同时校验白名单
 	validURLs := make([]string, 0, len(req.URLs))
-	for _, url := range req.URLs {
-		url = strings.TrimSpace(url)
-		if url == "" {
+	for _, rawURL := range req.URLs {
+		rawURL = strings.TrimSpace(rawURL)
+		if rawURL == "" {
 			continue
 		}
-		if !urlRegex.MatchString(url) {
-			writeError(w, http.StatusBadRequest, fmt.Sprintf("无效的 URL 格式: %s", url))
+		if !urlRegex.MatchString(rawURL) {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("无效的 URL 格式: %s", rawURL))
 			return
 		}
-		validURLs = append(validURLs, url)
+
+		// 域名白名单校验
+		if err := middleware.ValidateURL(h.whitelistMgr, rawURL); err != nil {
+			if vErr, ok := err.(*middleware.URLValidationError); ok {
+				middleware.WriteURLValidationError(w, vErr)
+				return
+			}
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+
+		validURLs = append(validURLs, rawURL)
 	}
 
 	if len(validURLs) == 0 {
@@ -186,10 +197,11 @@ func (h *TaskHandler) CreateBatchTask(w http.ResponseWriter, r *http.Request) {
 
 	// 创建批量任务记录
 	_, err = tx.Exec(`
-		INSERT INTO batch_tasks (id, user_id, total_count, status, created_at)
-		VALUES (?, ?, ?, 'pending', ?)
-	`, batchID, claims.UserID, len(validURLs), time.Now())
+		INSERT INTO batch_tasks (id, user_id, total_count, status)
+		VALUES (?, ?, ?, 'pending')
+	`, batchID, int64(claims.UserID), len(validURLs))
 	if err != nil {
+		log.Printf("Failed to insert batch_task %s: %v", batchID, err)
 		writeError(w, http.StatusInternalServerError, "数据库操作失败")
 		return
 	}
@@ -214,10 +226,11 @@ func (h *TaskHandler) CreateBatchTask(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// 保存到数据库
+		nowStr := time.Now().Format("2006-01-02 15:04:05")
 		_, err := tx.Exec(`
 			INSERT INTO tasks (id, user_id, url, status, quality, engine, batch_id, created_at)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-		`, taskID, claims.UserID, url, string(engine.TaskStatusQueued), quality, "", batchID, time.Now())
+		`, taskID, int64(claims.UserID), url, string(engine.TaskStatusQueued), quality, "", batchID, nowStr)
 		if err != nil {
 			log.Printf("Failed to insert task %s to database: %v", taskID, err)
 			continue
@@ -258,6 +271,23 @@ func (h *TaskHandler) CreateBatchTask(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Failed to update batch status for %s: %v", batchID, err)
 	}
 
+	// 记录审计日志
+	{
+		userIDVal := int64(claims.UserID)
+		h.auditLogger.Log(&audit.AuditLog{
+			UserID:    &userIDVal,
+			Action:    audit.ActionCreateTask,
+			IPAddress: r.RemoteAddr,
+			UserAgent: r.UserAgent(),
+			Detail: map[string]interface{}{
+				"batch_id": batchID,
+				"count":    len(validURLs),
+				"status":   "success",
+			},
+			CreatedAt: time.Now(),
+		})
+	}
+
 	writeJSON(w, http.StatusCreated, BatchTaskResponse{
 		Success: true,
 		Message: "批量任务创建成功",
@@ -265,6 +295,140 @@ func (h *TaskHandler) CreateBatchTask(w http.ResponseWriter, r *http.Request) {
 			BatchID: batchID,
 			Total:   len(tasks),
 			Tasks:   tasks,
+		},
+	})
+}
+
+// GetTasks 获取任务列表
+// GET /api/v1/tasks
+func (h *TaskHandler) GetTasks(w http.ResponseWriter, r *http.Request) {
+	// 获取用户信息
+	claims, ok := GetClaimsFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "未授权访问")
+		return
+	}
+
+	// 解析查询参数
+	limit := 100
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 {
+			limit = parsed
+			if limit > 1000 {
+				limit = 1000
+			}
+		}
+	}
+
+	// 查询用户的任务列表
+	rows, err := h.db.Query(`
+		SELECT id, url, status, progress, created_at
+		FROM tasks
+		WHERE user_id = ?
+		ORDER BY created_at DESC
+		LIMIT ?
+	`, claims.UserID, limit)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "查询任务列表失败")
+		return
+	}
+	defer rows.Close()
+
+	type TaskData struct {
+		ID        string  `json:"id"`
+		URL       string  `json:"url"`
+		Status    string  `json:"status"`
+		Progress  float64 `json:"progress"`
+		CreatedAt string  `json:"created_at"`
+	}
+
+	var tasks []TaskData
+	for rows.Next() {
+		var task TaskData
+		var createdAt time.Time
+		if err := rows.Scan(&task.ID, &task.URL, &task.Status, &task.Progress, &createdAt); err != nil {
+			log.Printf("Failed to scan task: %v", err)
+			continue
+		}
+		task.CreatedAt = createdAt.Format(time.RFC3339)
+		tasks = append(tasks, task)
+	}
+
+	if err := rows.Err(); err != nil {
+		writeError(w, http.StatusInternalServerError, "读取任务数据失败")
+		return
+	}
+
+	// 如果任务列表为空，返回空数组而不是 null
+	if tasks == nil {
+		tasks = []TaskData{}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"data":    tasks,
+	})
+}
+
+// GetTaskStats 获取任务统计
+// GET /api/v1/tasks/stats
+func (h *TaskHandler) GetTaskStats(w http.ResponseWriter, r *http.Request) {
+	// 获取用户信息
+	claims, ok := GetClaimsFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "未授权访问")
+		return
+	}
+
+	// 查询统计数据 - 使用单独的查询避免 SQLite SUM 返回 NULL
+	var totalTasks int
+	err := h.db.QueryRow(`SELECT COUNT(*) FROM tasks WHERE user_id = ?`, claims.UserID).Scan(&totalTasks)
+	if err != nil {
+		log.Printf("查询总任务数失败：%v", err)
+		writeError(w, http.StatusInternalServerError, "查询总任务数失败")
+		return
+	}
+
+	var completedTasks int
+	err = h.db.QueryRow(`SELECT COUNT(*) FROM tasks WHERE user_id = ? AND status = 'completed'`, claims.UserID).Scan(&completedTasks)
+	if err != nil {
+		log.Printf("查询已完成任务失败：%v", err)
+		writeError(w, http.StatusInternalServerError, "查询已完成任务失败")
+		return
+	}
+
+	var pendingTasks int
+	err = h.db.QueryRow(`SELECT COUNT(*) FROM tasks WHERE user_id = ? AND status IN ('queued', 'downloading')`, claims.UserID).Scan(&pendingTasks)
+	if err != nil {
+		log.Printf("查询进行中任务失败：%v", err)
+		writeError(w, http.StatusInternalServerError, "查询进行中任务失败")
+		return
+	}
+
+	var failedTasks int
+	err = h.db.QueryRow(`SELECT COUNT(*) FROM tasks WHERE user_id = ? AND status = 'failed'`, claims.UserID).Scan(&failedTasks)
+	if err != nil {
+		log.Printf("查询失败任务失败：%v", err)
+		writeError(w, http.StatusInternalServerError, "查询失败任务失败")
+		return
+	}
+
+	var downloadingTasks int
+	err = h.db.QueryRow(`SELECT COUNT(*) FROM tasks WHERE user_id = ? AND status = 'downloading'`, claims.UserID).Scan(&downloadingTasks)
+	if err != nil {
+		log.Printf("查询下载中任务失败：%v", err)
+		writeError(w, http.StatusInternalServerError, "查询下载中任务失败")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"data": map[string]int{
+			"totalTasks":        totalTasks,
+			"completedTasks":    completedTasks,
+			"pendingTasks":      pendingTasks,
+			"failedTasks":       failedTasks,
+			"downloadingTasks":  downloadingTasks,
 		},
 	})
 }

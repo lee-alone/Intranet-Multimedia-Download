@@ -14,6 +14,7 @@ interface CustomRouteMeta extends RouteMeta {
 // 使用静态导入以支持 Vite 构建
 const viewComponents: Record<string, () => Promise<Component>> = {
   Login: () => import('@/views/Login.vue'),
+  Register: () => import('@/views/Register.vue'),
   Dashboard: () => import('@/views/Dashboard.vue'),
   Tasks: () => import('@/views/Tasks.vue'),
   NewTask: () => import('@/views/NewTask.vue'),
@@ -34,6 +35,15 @@ const routes: RouteRecordRaw[] = [
     meta: {
       requiresGuest: true,
       title: '登录',
+    } as CustomRouteMeta,
+  },
+  {
+    path: '/register',
+    name: 'Register',
+    component: lazyLoad('Register'),
+    meta: {
+      requiresGuest: true,
+      title: '注册',
     } as CustomRouteMeta,
   },
   {

@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -45,7 +46,30 @@ func main() {
 
 	// 创建任务调度器
 	schedulerConfig := engine.DefaultSchedulerConfig()
-	scheduler := engine.NewTaskScheduler(nil, schedulerConfig) // engine 为 nil，后续会设置
+	schedulerConfig.MaxConcurrent = cfg.Download.Concurrent
+	scheduler := engine.NewTaskScheduler(nil, schedulerConfig)
+
+	// 创建下载引擎
+	ytdlp := engine.NewYtdlpEngine(engine.YtdlpConfig{
+		ExecPath:   filepath.Join("runtime", "yt-dlp.exe"),
+		OutputDir:  cfg.Download.OutputDir,
+		Timeout:    time.Duration(cfg.Download.Timeout) * time.Second,
+		MaxRetries: 3,
+	})
+
+	lux := engine.NewLuxEngine(engine.LuxConfig{
+		ExecPath:  filepath.Join("runtime", "lux.exe"),
+		OutputDir: cfg.Download.OutputDir,
+	})
+
+	// 创建故障转移引擎
+	failoverConfig := engine.DefaultFailoverConfig()
+	failoverConfig.MaxFailures = 3
+	failoverConfig.CooldownTime = 10 * time.Minute
+	engineWrapper := engine.NewFailoverEngine(ytdlp, lux, failoverConfig)
+
+	// 将引擎注入调度器
+	scheduler.SetEngine(engineWrapper)
 
 	// 创建服务器
 	srv, err := server.New(cfg, db, scheduler)

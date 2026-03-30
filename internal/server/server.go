@@ -238,6 +238,79 @@ func (s *Server) logRotateLoop() {
 	}
 }
 
+// setupSchedulerCallbacks 设置调度器回调函数，用于同步数据库和通知客户端
+func (s *Server) setupSchedulerCallbacks() {
+	if s.scheduler == nil {
+		return
+	}
+
+	// 任务状态改变回调
+	s.scheduler.SetOnTaskUpdate(func(task *engine.Task) {
+		// 1. 同步到数据库
+		_, err := s.db.Exec(`
+			UPDATE tasks 
+			SET status = ?, 
+				progress = ?, 
+				file_path = ?, 
+				file_size = ?, 
+				error_message = ?, 
+				started_at = ?, 
+				completed_at = ?,
+				updated_at = CURRENT_TIMESTAMP
+			WHERE id = ?
+		`, string(task.Status), task.Progress.Percent, task.FilePath, task.Progress.Total, 
+		   formatError(task.Error), task.StartedAt, task.CompletedAt, task.ID)
+		
+		if err != nil {
+			log.Printf("Failed to sync task %s status to DB: %v", task.ID, err)
+		}
+
+		// 如果是批量任务，更新批量任务进度
+		if task.BatchID != "" {
+			s.updateBatchProgress(task.BatchID)
+		}
+
+		// 2. 发送 WebSocket 通知
+		handler.NotifyTaskUpdate(task)
+	})
+
+	// 任务进度更新回调
+	s.scheduler.SetOnProgressUpdate(func(task *engine.Task) {
+		// 进度更新频率较高，一般只发送 WebSocket 通知，不频繁更新数据库
+		// 但每隔一定百分比（如 5%）或一定时间可以同步一次数据库
+		
+		// 仅发送 WebSocket 通知
+		handler.NotifyTaskUpdate(task)
+	})
+}
+
+// formatError 格式化错误对象为字符串
+func formatError(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}
+
+// updateBatchProgress 更新批量任务的完成/失败计数
+func (s *Server) updateBatchProgress(batchID string) {
+	_, err := s.db.Exec(`
+		UPDATE batch_tasks 
+		SET completed_count = (SELECT COUNT(*) FROM tasks WHERE batch_id = ? AND status = 'completed'),
+			failed_count = (SELECT COUNT(*) FROM tasks WHERE batch_id = ? AND status = 'failed'),
+			status = CASE 
+				WHEN (SELECT COUNT(*) FROM tasks WHERE batch_id = ? AND status NOT IN ('completed', 'failed', 'cancelled')) = 0 THEN 'completed'
+				ELSE 'processing'
+			END,
+			updated_at = CURRENT_TIMESTAMP
+		WHERE id = ?
+	`, batchID, batchID, batchID, batchID)
+	
+	if err != nil {
+		log.Printf("Failed to update batch progress for %s: %v", batchID, err)
+	}
+}
+
 // Shutdown 优雅关闭服务器
 func (s *Server) Shutdown(ctx context.Context) error {
 	log.Println("Server shutting down...")
@@ -338,6 +411,19 @@ func (s *Server) registerRoutes() {
 	// 需要认证的路由中间件
 	authMiddleware := handler.AuthMiddleware(s.jwtMgr)
 
+	// 任务列表路由（使用 HandleFunc 避免自动重定向）
+	s.mux.HandleFunc("/api/v1/tasks", func(w http.ResponseWriter, r *http.Request) {
+		// 只处理 GET 请求
+		if r.Method != http.MethodGet {
+			http.NotFound(w, r)
+			return
+		}
+		authMiddleware(http.HandlerFunc(taskHandler.GetTasks)).ServeHTTP(w, r)
+	})
+
+	// 任务统计路由
+	s.mux.Handle("/api/v1/tasks/stats", authMiddleware(http.HandlerFunc(taskHandler.GetTaskStats)))
+
 	// MFA 相关路由
 	s.mux.Handle("/api/v1/mfa/generate", authMiddleware(http.HandlerFunc(authHandler.GenerateMFA)))
 	s.mux.Handle("/api/v1/mfa/verify", authMiddleware(http.HandlerFunc(authHandler.VerifyMFA)))
@@ -373,65 +459,37 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("/api/v1/tasks/batch/", authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// 检查是否是批量任务进度查询
 		path := r.URL.Path
-		if strings.HasPrefix(path, "/api/v1/tasks/batch/") && len(strings.Split(path, "/")) == 5 {
+		parts := strings.Split(path, "/")
+		if strings.HasPrefix(path, "/api/v1/tasks/batch/") && len(parts) == 6 {
 			taskHandler.GetBatchProgress(w, r)
 			return
 		}
 		http.NotFound(w, r)
 	})))
 
-	// 单任务取消路由
+	// 单任务取消/下载路由
 	s.mux.Handle("/api/v1/tasks/", authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// 检查是否是单任务操作
 		path := r.URL.Path
 		parts := strings.Split(path, "/")
 		// 路径格式：/api/v1/tasks/{id}
-		if len(parts) == 4 && parts[3] != "" && r.Method == http.MethodDelete {
-			taskHandler.CancelTask(w, r)
+		if len(parts) == 5 && parts[4] != "" {
+			if r.Method == http.MethodDelete {
+				taskHandler.CancelTask(w, r)
+				return
+			}
+			// 路径格式：/api/v1/tasks/{id}/download
+			if len(parts) == 6 && parts[5] == "download" && r.Method == http.MethodGet {
+				taskHandler.DownloadFile(w, r)
+				return
+			}
+		}
+		// 如果是 /api/v1/tasks/ 且是 GET 请求，返回任务列表（处理重定向）
+		if len(parts) == 4 && r.Method == http.MethodGet {
+			taskHandler.GetTasks(w, r)
 			return
 		}
-		// 路径格式：/api/v1/tasks/{id}/download
-		if len(parts) == 5 && parts[4] == "download" && r.Method == http.MethodGet {
-			taskHandler.DownloadFile(w, r)
-			return
-		}
-		http.NotFound(w, r)
-	})))
-	s.mux.Handle("/api/v1/tasks/batch", authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodPost:
-			taskHandler.CreateBatchTask(w, r)
-		default:
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		}
-	})))
-
-	// 批量任务进度查询路由
-	s.mux.Handle("/api/v1/tasks/batch/", authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// 检查是否是批量任务进度查询
-		path := r.URL.Path
-		if strings.HasPrefix(path, "/api/v1/tasks/batch/") && len(strings.Split(path, "/")) == 5 {
-			taskHandler.GetBatchProgress(w, r)
-			return
-		}
-		http.NotFound(w, r)
-	})))
-
-	// 单任务取消路由
-	s.mux.Handle("/api/v1/tasks/", authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// 检查是否是单任务操作
-		path := r.URL.Path
-		parts := strings.Split(path, "/")
-		// 路径格式: /api/v1/tasks/{id}
-		if len(parts) == 4 && parts[3] != "" && r.Method == http.MethodDelete {
-			taskHandler.CancelTask(w, r)
-			return
-		}
-		// 路径格式：/api/v1/tasks/{id}/download
-		if len(parts) == 5 && parts[4] == "download" && r.Method == http.MethodGet {
-			taskHandler.DownloadFile(w, r)
-			return
-		}
+		// 其他方法返回 404
 		http.NotFound(w, r)
 	})))
 }

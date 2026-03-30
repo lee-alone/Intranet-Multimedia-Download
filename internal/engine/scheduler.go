@@ -95,6 +95,7 @@ type Task struct {
 	StartedAt   time.Time
 	CompletedAt time.Time
 	Error       error
+	FilePath    string
 	mu          sync.RWMutex
 }
 
@@ -189,6 +190,27 @@ func NewTaskScheduler(engine Engine, config SchedulerConfig) *TaskScheduler {
 	return s
 }
 
+// SetEngine 设置下载引擎
+func (s *TaskScheduler) SetEngine(engine Engine) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.engine = engine
+}
+
+// SetOnTaskUpdate 设置任务状态更新回调
+func (s *TaskScheduler) SetOnTaskUpdate(fn func(task *Task)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.onTaskUpdate = fn
+}
+
+// SetOnProgressUpdate 设置进度更新回调
+func (s *TaskScheduler) SetOnProgressUpdate(fn func(task *Task)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.onProgressUpdate = fn
+}
+
 func (s *TaskScheduler) consumerLoop() {
 	for {
 		select {
@@ -244,10 +266,21 @@ func (s *TaskScheduler) executeTask(task *Task) {
 		log.Printf("任务 %s 状态转换失败：%v", task.ID, err)
 		return
 	}
+	s.notifyTaskUpdate(task)
+	log.Printf("开始执行任务 %s: URL=%s", task.ID, task.URL)
 	task.StartedAt = time.Now()
 	s.notifyTaskUpdate(task)
 	ctx, cancel := context.WithCancel(s.ctx)
 	defer cancel()
+
+	if s.engine == nil {
+		log.Printf("错误：任务调度器未配置下载引擎")
+		task.TransitionStatus(TaskStatusFailed)
+		task.Error = fmt.Errorf("未配置下载引擎")
+		s.notifyTaskUpdate(task)
+		return
+	}
+
 	progressChan := s.engine.Download(ctx, task.URL, task.Options)
 	var lastProgress DownloadProgress
 	hasError := false
@@ -265,8 +298,11 @@ func (s *TaskScheduler) executeTask(task *Task) {
 	} else {
 		// 先转换到 Merging 状态，然后再转换到 Completed
 		task.TransitionStatus(TaskStatusMerging)
-		task.TransitionStatus(TaskStatusCompleted)
+		s.notifyTaskUpdate(task)
+		task.FilePath = lastProgress.Status
 		task.CompletedAt = time.Now()
+		task.TransitionStatus(TaskStatusCompleted)
+		s.notifyTaskUpdate(task)
 	}
 	s.notifyTaskUpdate(task)
 }

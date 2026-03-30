@@ -1,0 +1,823 @@
+=== RUN   TestDefaultConfig
+--- PASS: TestDefaultConfig (0.00s)
+=== RUN   TestAlertManager
+--- PASS: TestAlertManager (0.00s)
+=== RUN   TestAlertManagerCallback
+--- PASS: TestAlertManagerCallback (0.10s)
+=== RUN   TestFormatSize
+--- PASS: TestFormatSize (0.00s)
+=== RUN   TestFormatDetails
+--- PASS: TestFormatDetails (0.00s)
+=== RUN   TestGetSystemInfo
+--- PASS: TestGetSystemInfo (0.00s)
+=== RUN   TestAlertTypes
+--- PASS: TestAlertTypes (0.00s)
+=== RUN   TestAlertLevels
+--- PASS: TestAlertLevels (0.00s)
+=== RUN   TestAlertManagerMultipleCallbacks
+--- PASS: TestAlertManagerMultipleCallbacks (0.10s)
+=== RUN   TestCheckDiskAlert
+--- PASS: TestCheckDiskAlert (0.46s)
+=== RUN   TestDiskCheckLoopStop
+--- PASS: TestDiskCheckLoopStop (0.05s)
+=== RUN   TestSendWebhook_DingTalk
+--- PASS: TestSendWebhook_DingTalk (0.20s)
+=== RUN   TestSendWebhook_WeChat
+--- PASS: TestSendWebhook_WeChat (0.20s)
+=== RUN   TestSendWebhook_FeiShu
+--- PASS: TestSendWebhook_FeiShu (0.20s)
+=== RUN   TestSendEmail
+--- PASS: TestSendEmail (0.50s)
+=== RUN   TestSendEmail_LOGIN
+--- PASS: TestSendEmail_LOGIN (0.50s)
+=== RUN   TestAlertManager_WebhookCallback
+--- PASS: TestAlertManager_WebhookCallback (0.10s)
+=== RUN   TestAlertManager_EmailDetails
+--- PASS: TestAlertManager_EmailDetails (0.00s)
+PASS
+coverage: 55.6% of statements
+ok  	github.com/campus/collector/internal/alert	3.341s	coverage: 55.6% of statements
+=== RUN   TestNewLogger
+=== RUN   TestNewLogger/valid_logger_with_file
+=== RUN   TestNewLogger/valid_logger_without_file
+--- PASS: TestNewLogger (0.00s)
+    --- PASS: TestNewLogger/valid_logger_with_file (0.00s)
+    --- PASS: TestNewLogger/valid_logger_without_file (0.00s)
+=== RUN   TestLogger_Log
+=== RUN   TestLogger_Log/valid_log_with_user
+=== RUN   TestLogger_Log/valid_log_without_user
+=== RUN   TestLogger_Log/log_with_URL_in_detail
+=== RUN   TestLogger_Log/log_with_sensitive_data
+--- PASS: TestLogger_Log (0.00s)
+    --- PASS: TestLogger_Log/valid_log_with_user (0.00s)
+    --- PASS: TestLogger_Log/valid_log_without_user (0.00s)
+    --- PASS: TestLogger_Log/log_with_URL_in_detail (0.00s)
+    --- PASS: TestLogger_Log/log_with_sensitive_data (0.00s)
+=== RUN   TestSanitizeDetail
+=== RUN   TestSanitizeDetail/sanitize_URL_with_token
+=== RUN   TestSanitizeDetail/sanitize_password
+=== RUN   TestSanitizeDetail/sanitize_api_key
+=== RUN   TestSanitizeDetail/no_sensitive_data
+=== RUN   TestSanitizeDetail/nested_sensitive_data
+--- PASS: TestSanitizeDetail (0.00s)
+    --- PASS: TestSanitizeDetail/sanitize_URL_with_token (0.00s)
+    --- PASS: TestSanitizeDetail/sanitize_password (0.00s)
+    --- PASS: TestSanitizeDetail/sanitize_api_key (0.00s)
+    --- PASS: TestSanitizeDetail/no_sensitive_data (0.00s)
+    --- PASS: TestSanitizeDetail/nested_sensitive_data (0.00s)
+=== RUN   TestSanitizeURL
+=== RUN   TestSanitizeURL/URL_with_token_parameter
+=== RUN   TestSanitizeURL/URL_with_password_parameter
+=== RUN   TestSanitizeURL/URL_with_api_key_parameter
+=== RUN   TestSanitizeURL/URL_without_sensitive_parameters
+=== RUN   TestSanitizeURL/URL_with_mixed_parameters
+=== RUN   TestSanitizeURL/invalid_URL
+=== RUN   TestSanitizeURL/URL_with_session_parameter
+--- PASS: TestSanitizeURL (0.00s)
+    --- PASS: TestSanitizeURL/URL_with_token_parameter (0.00s)
+    --- PASS: TestSanitizeURL/URL_with_password_parameter (0.00s)
+    --- PASS: TestSanitizeURL/URL_with_api_key_parameter (0.00s)
+    --- PASS: TestSanitizeURL/URL_without_sensitive_parameters (0.00s)
+    --- PASS: TestSanitizeURL/URL_with_mixed_parameters (0.00s)
+    --- PASS: TestSanitizeURL/invalid_URL (0.00s)
+    --- PASS: TestSanitizeURL/URL_with_session_parameter (0.00s)
+=== RUN   TestIsSensitiveKey
+=== RUN   TestIsSensitiveKey/password
+=== RUN   TestIsSensitiveKey/passwd
+=== RUN   TestIsSensitiveKey/pwd
+=== RUN   TestIsSensitiveKey/secret
+=== RUN   TestIsSensitiveKey/token
+=== RUN   TestIsSensitiveKey/api_key
+=== RUN   TestIsSensitiveKey/apikey
+=== RUN   TestIsSensitiveKey/access_token
+=== RUN   TestIsSensitiveKey/refresh_token
+=== RUN   TestIsSensitiveKey/authorization
+=== RUN   TestIsSensitiveKey/auth
+=== RUN   TestIsSensitiveKey/credential
+=== RUN   TestIsSensitiveKey/credentials
+=== RUN   TestIsSensitiveKey/username
+=== RUN   TestIsSensitiveKey/email
+=== RUN   TestIsSensitiveKey/id
+=== RUN   TestIsSensitiveKey/name
+=== RUN   TestIsSensitiveKey/Password
+=== RUN   TestIsSensitiveKey/PASSWORD
+=== RUN   TestIsSensitiveKey/user_password
+--- PASS: TestIsSensitiveKey (0.00s)
+    --- PASS: TestIsSensitiveKey/password (0.00s)
+    --- PASS: TestIsSensitiveKey/passwd (0.00s)
+    --- PASS: TestIsSensitiveKey/pwd (0.00s)
+    --- PASS: TestIsSensitiveKey/secret (0.00s)
+    --- PASS: TestIsSensitiveKey/token (0.00s)
+    --- PASS: TestIsSensitiveKey/api_key (0.00s)
+    --- PASS: TestIsSensitiveKey/apikey (0.00s)
+    --- PASS: TestIsSensitiveKey/access_token (0.00s)
+    --- PASS: TestIsSensitiveKey/refresh_token (0.00s)
+    --- PASS: TestIsSensitiveKey/authorization (0.00s)
+    --- PASS: TestIsSensitiveKey/auth (0.00s)
+    --- PASS: TestIsSensitiveKey/credential (0.00s)
+    --- PASS: TestIsSensitiveKey/credentials (0.00s)
+    --- PASS: TestIsSensitiveKey/username (0.00s)
+    --- PASS: TestIsSensitiveKey/email (0.00s)
+    --- PASS: TestIsSensitiveKey/id (0.00s)
+    --- PASS: TestIsSensitiveKey/name (0.00s)
+    --- PASS: TestIsSensitiveKey/Password (0.00s)
+    --- PASS: TestIsSensitiveKey/PASSWORD (0.00s)
+    --- PASS: TestIsSensitiveKey/user_password (0.00s)
+=== RUN   TestMaskSensitiveValue
+=== RUN   TestMaskSensitiveValue/short_value
+=== RUN   TestMaskSensitiveValue/medium_value
+=== RUN   TestMaskSensitiveValue/long_value
+=== RUN   TestMaskSensitiveValue/exactly_4_chars
+=== RUN   TestMaskSensitiveValue/empty_string
+--- PASS: TestMaskSensitiveValue (0.00s)
+    --- PASS: TestMaskSensitiveValue/short_value (0.00s)
+    --- PASS: TestMaskSensitiveValue/medium_value (0.00s)
+    --- PASS: TestMaskSensitiveValue/long_value (0.00s)
+    --- PASS: TestMaskSensitiveValue/exactly_4_chars (0.00s)
+    --- PASS: TestMaskSensitiveValue/empty_string (0.00s)
+=== RUN   TestLogger_Query
+=== RUN   TestLogger_Query/query_all
+=== RUN   TestLogger_Query/query_by_user
+=== RUN   TestLogger_Query/query_by_action
+=== RUN   TestLogger_Query/query_by_resource_type
+=== RUN   TestLogger_Query/query_with_limit
+=== RUN   TestLogger_Query/query_with_offset
+=== RUN   TestLogger_Query/query_with_multiple_filters
+--- PASS: TestLogger_Query (0.00s)
+    --- PASS: TestLogger_Query/query_all (0.00s)
+    --- PASS: TestLogger_Query/query_by_user (0.00s)
+    --- PASS: TestLogger_Query/query_by_action (0.00s)
+    --- PASS: TestLogger_Query/query_by_resource_type (0.00s)
+    --- PASS: TestLogger_Query/query_with_limit (0.00s)
+    --- PASS: TestLogger_Query/query_with_offset (0.00s)
+    --- PASS: TestLogger_Query/query_with_multiple_filters (0.00s)
+=== RUN   TestFileLogger_Rotate
+--- PASS: TestFileLogger_Rotate (0.00s)
+=== RUN   TestLogger_LogWithFileRotation
+--- PASS: TestLogger_LogWithFileRotation (0.00s)
+=== RUN   TestLogger_ConcurrentWrite
+--- PASS: TestLogger_ConcurrentWrite (0.01s)
+=== RUN   TestLogger_LogWithNilDetail
+--- PASS: TestLogger_LogWithNilDetail (0.00s)
+=== RUN   TestLogger_LogWithEmptyDetail
+--- PASS: TestLogger_LogWithEmptyDetail (0.00s)
+=== RUN   TestLogger_LogWithTimestamp
+--- PASS: TestLogger_LogWithTimestamp (0.00s)
+PASS
+coverage: 87.7% of statements
+ok  	github.com/campus/collector/internal/audit	0.712s	coverage: 87.7% of statements
+=== RUN   TestNewJWTManager
+=== RUN   TestNewJWTManager/valid_keys
+=== RUN   TestNewJWTManager/invalid_private_key_path
+=== RUN   TestNewJWTManager/invalid_public_key_path
+--- PASS: TestNewJWTManager (0.02s)
+    --- PASS: TestNewJWTManager/valid_keys (0.02s)
+    --- PASS: TestNewJWTManager/invalid_private_key_path (0.00s)
+    --- PASS: TestNewJWTManager/invalid_public_key_path (0.00s)
+=== RUN   TestJWTManager_GenerateToken
+=== RUN   TestJWTManager_GenerateToken/valid_user
+=== RUN   TestJWTManager_GenerateToken/admin_user
+--- PASS: TestJWTManager_GenerateToken (0.01s)
+    --- PASS: TestJWTManager_GenerateToken/valid_user (0.00s)
+    --- PASS: TestJWTManager_GenerateToken/admin_user (0.00s)
+=== RUN   TestJWTManager_ValidateToken
+=== RUN   TestJWTManager_ValidateToken/valid_access_token
+=== RUN   TestJWTManager_ValidateToken/invalid_token
+=== RUN   TestJWTManager_ValidateToken/empty_token
+--- PASS: TestJWTManager_ValidateToken (0.00s)
+    --- PASS: TestJWTManager_ValidateToken/valid_access_token (0.00s)
+    --- PASS: TestJWTManager_ValidateToken/invalid_token (0.00s)
+    --- PASS: TestJWTManager_ValidateToken/empty_token (0.00s)
+=== RUN   TestJWTManager_RefreshAccessToken
+--- PASS: TestJWTManager_RefreshAccessToken (0.01s)
+=== RUN   TestJWTManager_TokenExpiry
+--- PASS: TestJWTManager_TokenExpiry (0.00s)
+=== RUN   TestClaims_Structure
+--- PASS: TestClaims_Structure (0.00s)
+=== RUN   TestTokenPair_Structure
+--- PASS: TestTokenPair_Structure (0.00s)
+=== RUN   TestErrorDefinitions
+=== RUN   TestErrorDefinitions/ErrInvalidToken
+=== RUN   TestErrorDefinitions/ErrExpiredToken
+=== RUN   TestErrorDefinitions/ErrMissingKey
+--- PASS: TestErrorDefinitions (0.00s)
+    --- PASS: TestErrorDefinitions/ErrInvalidToken (0.00s)
+    --- PASS: TestErrorDefinitions/ErrExpiredToken (0.00s)
+    --- PASS: TestErrorDefinitions/ErrMissingKey (0.00s)
+=== RUN   TestNewLDAPClient
+=== RUN   TestNewLDAPClient/enabled_client
+=== RUN   TestNewLDAPClient/disabled_client
+=== RUN   TestNewLDAPClient/ldaps_client
+--- PASS: TestNewLDAPClient (0.00s)
+    --- PASS: TestNewLDAPClient/enabled_client (0.00s)
+    --- PASS: TestNewLDAPClient/disabled_client (0.00s)
+    --- PASS: TestNewLDAPClient/ldaps_client (0.00s)
+=== RUN   TestLDAPClient_Authenticate_Disabled
+--- PASS: TestLDAPClient_Authenticate_Disabled (0.00s)
+=== RUN   TestLDAPClient_TestConnection_Disabled
+--- PASS: TestLDAPClient_TestConnection_Disabled (0.00s)
+=== RUN   TestLDAPAuthResult_Structure
+--- PASS: TestLDAPAuthResult_Structure (0.00s)
+=== RUN   TestLDAPAuthHandler_New
+--- PASS: TestLDAPAuthHandler_New (0.00s)
+=== RUN   TestLDAPAuthHandler_New_NoFallback
+--- PASS: TestLDAPAuthHandler_New_NoFallback (0.00s)
+=== RUN   TestLDAPClient_Timeout
+--- PASS: TestLDAPClient_Timeout (0.00s)
+=== RUN   TestLDAPClient_ZeroTimeout
+--- PASS: TestLDAPClient_ZeroTimeout (0.00s)
+=== RUN   TestTokenStore
+=== RUN   TestTokenStore/StoreRefreshToken
+=== RUN   TestTokenStore/ValidateRefreshToken_Valid
+=== RUN   TestTokenStore/ValidateRefreshToken_NotFound
+=== RUN   TestTokenStore/ValidateRefreshToken_Expired
+=== RUN   TestTokenStore/RevokeRefreshToken
+=== RUN   TestTokenStore/RevokeRefreshToken_NotFound
+=== RUN   TestTokenStore/RevokeAllUserTokens
+=== RUN   TestTokenStore/CleanupExpiredTokens
+--- PASS: TestTokenStore (0.01s)
+    --- PASS: TestTokenStore/StoreRefreshToken (0.01s)
+    --- PASS: TestTokenStore/ValidateRefreshToken_Valid (0.00s)
+    --- PASS: TestTokenStore/ValidateRefreshToken_NotFound (0.00s)
+    --- PASS: TestTokenStore/ValidateRefreshToken_Expired (0.00s)
+    --- PASS: TestTokenStore/RevokeRefreshToken (0.00s)
+    --- PASS: TestTokenStore/RevokeRefreshToken_NotFound (0.00s)
+    --- PASS: TestTokenStore/RevokeAllUserTokens (0.00s)
+    --- PASS: TestTokenStore/CleanupExpiredTokens (0.00s)
+=== RUN   TestHashToken
+--- PASS: TestHashToken (0.00s)
+=== RUN   TestErrorDefinitions_TokenStore
+=== RUN   TestErrorDefinitions_TokenStore/ErrTokenNotFound
+=== RUN   TestErrorDefinitions_TokenStore/ErrTokenRevoked
+--- PASS: TestErrorDefinitions_TokenStore (0.00s)
+    --- PASS: TestErrorDefinitions_TokenStore/ErrTokenNotFound (0.00s)
+    --- PASS: TestErrorDefinitions_TokenStore/ErrTokenRevoked (0.00s)
+PASS
+coverage: 15.8% of statements
+ok  	github.com/campus/collector/internal/auth	1.231s	coverage: 15.8% of statements
+=== RUN   TestExpandEnvVars
+=== RUN   TestExpandEnvVars/绠€鍗曠幆澧冨彉閲忔浛鎹?=== RUN   TestExpandEnvVars/涓嶅甫澶ф嫭鍙风殑鐜鍙橀噺锛堢嫭绔嬶級
+=== RUN   TestExpandEnvVars/涓嶅甫澶ф嫭鍙风殑鐜鍙橀噺锛堟湯灏撅級
+=== RUN   TestExpandEnvVars/甯﹂粯璁ゅ€肩殑鐜鍙橀噺锛堝彉閲忓瓨鍦級
+=== RUN   TestExpandEnvVars/甯﹂粯璁ゅ€肩殑鐜鍙橀噺锛堝彉閲忎笉瀛樺湪锛?=== RUN   TestExpandEnvVars/甯︾┖榛樿鍊肩殑鐜鍙橀噺
+=== RUN   TestExpandEnvVars/澶氫釜鐜鍙橀噺
+=== RUN   TestExpandEnvVars/鐜鍙橀噺涓嶅瓨鍦ㄤ笖鏃犻粯璁ゅ€?=== RUN   TestExpandEnvVars/鏃犵幆澧冨彉閲忕殑鏅€氭枃鏈?=== RUN   TestExpandEnvVars/榛樿鍊煎寘鍚壒娈婂瓧绗?--- PASS: TestExpandEnvVars (0.00s)
+    --- PASS: TestExpandEnvVars/绠€鍗曠幆澧冨彉閲忔浛鎹?(0.00s)
+    --- PASS: TestExpandEnvVars/涓嶅甫澶ф嫭鍙风殑鐜鍙橀噺锛堢嫭绔嬶級 (0.00s)
+    --- PASS: TestExpandEnvVars/涓嶅甫澶ф嫭鍙风殑鐜鍙橀噺锛堟湯灏撅級 (0.00s)
+    --- PASS: TestExpandEnvVars/甯﹂粯璁ゅ€肩殑鐜鍙橀噺锛堝彉閲忓瓨鍦級 (0.00s)
+    --- PASS: TestExpandEnvVars/甯﹂粯璁ゅ€肩殑鐜鍙橀噺锛堝彉閲忎笉瀛樺湪锛?(0.00s)
+    --- PASS: TestExpandEnvVars/甯︾┖榛樿鍊肩殑鐜鍙橀噺 (0.00s)
+    --- PASS: TestExpandEnvVars/澶氫釜鐜鍙橀噺 (0.00s)
+    --- PASS: TestExpandEnvVars/鐜鍙橀噺涓嶅瓨鍦ㄤ笖鏃犻粯璁ゅ€?(0.00s)
+    --- PASS: TestExpandEnvVars/鏃犵幆澧冨彉閲忕殑鏅€氭枃鏈?(0.00s)
+    --- PASS: TestExpandEnvVars/榛樿鍊煎寘鍚壒娈婂瓧绗?(0.00s)
+=== RUN   TestCheckFilePermissions
+=== RUN   TestCheckFilePermissions/瀛樺湪鐨勬枃浠?=== RUN   TestCheckFilePermissions/涓嶅瓨鍦ㄧ殑鏂囦欢
+--- PASS: TestCheckFilePermissions (0.01s)
+    --- PASS: TestCheckFilePermissions/瀛樺湪鐨勬枃浠?(0.00s)
+    --- PASS: TestCheckFilePermissions/涓嶅瓨鍦ㄧ殑鏂囦欢 (0.00s)
+=== RUN   TestValidate
+=== RUN   TestValidate/榛樿閰嶇疆鏈夋晥
+WARNING: Using default JWT secret, please change in production!
+=== RUN   TestValidate/鏃犳晥绔彛鍙?=== RUN   TestValidate/绔彛鍙疯秴鍑鸿寖鍥?=== RUN   TestValidate/绌烘暟鎹簱璺緞
+=== RUN   TestValidate/鏃犳晥骞跺彂鏁帮紙澶皬锛?=== RUN   TestValidate/鏃犳晥骞跺彂鏁帮紙澶ぇ锛?=== RUN   TestValidate/鏃犳晥鏃ュ織绾у埆
+=== RUN   TestValidate/鏈夋晥鏃ュ織绾у埆_debug
+--- PASS: TestValidate (0.00s)
+    --- PASS: TestValidate/榛樿閰嶇疆鏈夋晥 (0.00s)
+    --- PASS: TestValidate/鏃犳晥绔彛鍙?(0.00s)
+    --- PASS: TestValidate/绔彛鍙疯秴鍑鸿寖鍥?(0.00s)
+    --- PASS: TestValidate/绌烘暟鎹簱璺緞 (0.00s)
+    --- PASS: TestValidate/鏃犳晥骞跺彂鏁帮紙澶皬锛?(0.00s)
+    --- PASS: TestValidate/鏃犳晥骞跺彂鏁帮紙澶ぇ锛?(0.00s)
+    --- PASS: TestValidate/鏃犳晥鏃ュ織绾у埆 (0.00s)
+    --- PASS: TestValidate/鏈夋晥鏃ュ織绾у埆_debug (0.00s)
+=== RUN   TestDefaultConfig
+--- PASS: TestDefaultConfig (0.00s)
+=== RUN   TestGetAddress
+--- PASS: TestGetAddress (0.00s)
+=== RUN   TestGetDSN
+--- PASS: TestGetDSN (0.00s)
+=== RUN   TestLoadFromFile
+=== RUN   TestLoadFromFile/鎴愬姛鍔犺浇閰嶇疆鏂囦欢
+=== RUN   TestLoadFromFile/鐜鍙橀噺鏇挎崲
+=== RUN   TestLoadFromFile/閰嶇疆鏂囦欢涓嶅瓨鍦?=== RUN   TestLoadFromFile/鏃犳晥鐨刜YAML_鏍煎紡
+--- PASS: TestLoadFromFile (0.03s)
+    --- PASS: TestLoadFromFile/鎴愬姛鍔犺浇閰嶇疆鏂囦欢 (0.01s)
+    --- PASS: TestLoadFromFile/鐜鍙橀噺鏇挎崲 (0.01s)
+    --- PASS: TestLoadFromFile/閰嶇疆鏂囦欢涓嶅瓨鍦?(0.00s)
+    --- PASS: TestLoadFromFile/鏃犳晥鐨刜YAML_鏍煎紡 (0.00s)
+=== RUN   TestIsWindows
+--- PASS: TestIsWindows (0.00s)
+PASS
+coverage: 85.1% of statements
+ok  	github.com/campus/collector/internal/config	0.367s	coverage: 85.1% of statements
+=== RUN   TestIsValidMigrationFilename
+=== RUN   TestIsValidMigrationFilename/鏈夋晥鏂囦欢鍚?=== RUN   TestIsValidMigrationFilename/鏈夋晥鏂囦欢鍚嶅甫涓嬪垝绾?=== RUN   TestIsValidMigrationFilename/鏃犳晥鏂囦欢鍚峗-_鏃犳墿灞曞悕
+=== RUN   TestIsValidMigrationFilename/鏃犳晥鏂囦欢鍚峗-_鏃堕棿鎴冲お鐭?=== RUN   TestIsValidMigrationFilename/鏃犳晥鏂囦欢鍚峗-_闈炴暟瀛楁椂闂存埑
+=== RUN   TestIsValidMigrationFilename/鏃犳晥鏂囦欢鍚峗-_閿欒鎵╁睍鍚?=== RUN   TestIsValidMigrationFilename/鏃犳晥鏂囦欢鍚峗-_璺緞閬嶅巻
+=== RUN   TestIsValidMigrationFilename/鏃犳晥鏂囦欢鍚峗-_缁濆璺緞
+=== RUN   TestIsValidMigrationFilename/绌烘枃浠跺悕
+--- PASS: TestIsValidMigrationFilename (0.00s)
+    --- PASS: TestIsValidMigrationFilename/鏈夋晥鏂囦欢鍚?(0.00s)
+    --- PASS: TestIsValidMigrationFilename/鏈夋晥鏂囦欢鍚嶅甫涓嬪垝绾?(0.00s)
+    --- PASS: TestIsValidMigrationFilename/鏃犳晥鏂囦欢鍚峗-_鏃犳墿灞曞悕 (0.00s)
+    --- PASS: TestIsValidMigrationFilename/鏃犳晥鏂囦欢鍚峗-_鏃堕棿鎴冲お鐭?(0.00s)
+    --- PASS: TestIsValidMigrationFilename/鏃犳晥鏂囦欢鍚峗-_闈炴暟瀛楁椂闂存埑 (0.00s)
+    --- PASS: TestIsValidMigrationFilename/鏃犳晥鏂囦欢鍚峗-_閿欒鎵╁睍鍚?(0.00s)
+    --- PASS: TestIsValidMigrationFilename/鏃犳晥鏂囦欢鍚峗-_璺緞閬嶅巻 (0.00s)
+    --- PASS: TestIsValidMigrationFilename/鏃犳晥鏂囦欢鍚峗-_缁濆璺緞 (0.00s)
+    --- PASS: TestIsValidMigrationFilename/绌烘枃浠跺悕 (0.00s)
+=== RUN   TestContainsPathTraversal
+=== RUN   TestContainsPathTraversal/姝ｅ父鏂囦欢鍚?=== RUN   TestContainsPathTraversal/璺緞閬嶅巻_../
+=== RUN   TestContainsPathTraversal/缁濆璺緞_/
+=== RUN   TestContainsPathTraversal/Windows_缁濆璺緞_\
+=== RUN   TestContainsPathTraversal/褰撳墠鐩綍_./
+=== RUN   TestContainsPathTraversal/绌哄瓧绗︿覆
+--- PASS: TestContainsPathTraversal (0.00s)
+    --- PASS: TestContainsPathTraversal/姝ｅ父鏂囦欢鍚?(0.00s)
+    --- PASS: TestContainsPathTraversal/璺緞閬嶅巻_../ (0.00s)
+    --- PASS: TestContainsPathTraversal/缁濆璺緞_/ (0.00s)
+    --- PASS: TestContainsPathTraversal/Windows_缁濆璺緞_\ (0.00s)
+    --- PASS: TestContainsPathTraversal/褰撳墠鐩綍_./ (0.00s)
+    --- PASS: TestContainsPathTraversal/绌哄瓧绗︿覆 (0.00s)
+=== RUN   TestInitAndMigrations
+=== RUN   TestInitAndMigrations/鏁版嵁搴撳垵濮嬪寲鍜岃縼绉?=== RUN   TestInitAndMigrations/璺宠繃鏃犳晥杩佺Щ鏂囦欢
+=== RUN   TestInitAndMigrations/鍏抽棴绌鸿繛鎺?--- PASS: TestInitAndMigrations (0.04s)
+    --- PASS: TestInitAndMigrations/鏁版嵁搴撳垵濮嬪寲鍜岃縼绉?(0.03s)
+    --- PASS: TestInitAndMigrations/璺宠繃鏃犳晥杩佺Щ鏂囦欢 (0.01s)
+    --- PASS: TestInitAndMigrations/鍏抽棴绌鸿繛鎺?(0.00s)
+PASS
+coverage: 80.0% of statements
+ok  	github.com/campus/collector/internal/database	0.470s	coverage: 80.0% of statements
+=== RUN   TestPerformanceReport
+=== RUN   TestPerformanceReport/ConcurrentDownload
+=== RUN   TestPerformanceReport/SQLiteWrite
+=== RUN   TestPerformanceReport/WebSocketThroughput
+=== NAME  TestPerformanceReport
+    benchmark_test.go:241: 鎬ц兘娴嬭瘯缁撴灉鎽樿锛歮ap[concurrent_download:map[completed:15 elapsed:100.669ms failed:0 max_concurrent:10 status:passed total_tasks:15] sqlite_write:map[concurrent_writers:10 elapsed:1.0021ms qps:997904.4007584074 status:passed total_logs:1000 written_count:1000] websocket_throughput:map[avg_latency:1.578484ms expected_max:200ms message_count:1000 processed_count:1000 status:passed]]
+--- PASS: TestPerformanceReport (0.26s)
+    --- PASS: TestPerformanceReport/ConcurrentDownload (0.10s)
+    --- PASS: TestPerformanceReport/SQLiteWrite (0.00s)
+    --- PASS: TestPerformanceReport/WebSocketThroughput (0.16s)
+=== RUN   TestYtdlpEngine_Name
+--- PASS: TestYtdlpEngine_Name (0.00s)
+=== RUN   TestYtdlpEngine_Status
+--- PASS: TestYtdlpEngine_Status (0.00s)
+=== RUN   TestYtdlpEngine_CanHandle
+--- PASS: TestYtdlpEngine_CanHandle (0.00s)
+=== RUN   TestYtdlpEngine_IsAvailable
+--- PASS: TestYtdlpEngine_IsAvailable (0.53s)
+=== RUN   TestYtdlpEngine_GetVersion
+--- PASS: TestYtdlpEngine_GetVersion (0.38s)
+=== RUN   TestYtdlpEngine_Download
+--- PASS: TestYtdlpEngine_Download (1.99s)
+=== RUN   TestLuxEngine_Name
+--- PASS: TestLuxEngine_Name (0.00s)
+=== RUN   TestLuxEngine_Status
+--- PASS: TestLuxEngine_Status (0.00s)
+=== RUN   TestLuxEngine_CanHandle
+--- PASS: TestLuxEngine_CanHandle (0.00s)
+=== RUN   TestLuxEngine_IsAvailable
+--- PASS: TestLuxEngine_IsAvailable (0.00s)
+=== RUN   TestLuxEngine_GetVersion
+--- PASS: TestLuxEngine_GetVersion (0.00s)
+=== RUN   TestEngineSelector_Select
+--- PASS: TestEngineSelector_Select (0.00s)
+=== RUN   TestEngineSelector_ListEngines
+--- PASS: TestEngineSelector_ListEngines (0.00s)
+=== RUN   TestEngineSelector_GetEngineByName
+--- PASS: TestEngineSelector_GetEngineByName (0.00s)
+=== RUN   TestParseDuration
+--- PASS: TestParseDuration (0.00s)
+=== RUN   TestBuildOutputPath
+--- PASS: TestBuildOutputPath (0.00s)
+=== RUN   TestEngineStatus_String
+--- PASS: TestEngineStatus_String (0.00s)
+=== RUN   TestYtdlpParseProgress
+--- PASS: TestYtdlpParseProgress (0.00s)
+=== RUN   TestLuxParseProgress
+--- PASS: TestLuxParseProgress (0.00s)
+=== RUN   TestYtdlpEngine_Download_Error
+--- PASS: TestYtdlpEngine_Download_Error (0.01s)
+=== RUN   TestLuxEngine_Download
+--- PASS: TestLuxEngine_Download (0.00s)
+=== RUN   TestEngineStatusTransitions
+--- PASS: TestEngineStatusTransitions (0.00s)
+=== RUN   TestYtdlpEngine_CanHandle_EdgeCases
+--- PASS: TestYtdlpEngine_CanHandle_EdgeCases (0.00s)
+=== RUN   TestFailoverEngine_Creation
+--- PASS: TestFailoverEngine_Creation (0.00s)
+=== RUN   TestFailoverEngine_SwitchEngine
+--- PASS: TestFailoverEngine_SwitchEngine (0.00s)
+=== RUN   TestFailoverEngine_FailureCount
+--- PASS: TestFailoverEngine_FailureCount (0.00s)
+=== RUN   TestFailoverEngine_ResetEngine
+--- PASS: TestFailoverEngine_ResetEngine (0.00s)
+=== RUN   TestFailoverEngine_AlertCallback
+--- PASS: TestFailoverEngine_AlertCallback (0.00s)
+=== RUN   TestFailoverEngine_HealthStatus
+--- PASS: TestFailoverEngine_HealthStatus (0.00s)
+=== RUN   TestFailoverEngine_Download
+--- PASS: TestFailoverEngine_Download (0.05s)
+=== RUN   TestFailoverEngine_VersionCheck
+--- PASS: TestFailoverEngine_VersionCheck (0.00s)
+=== RUN   TestFailoverEngine_CanHandle
+--- PASS: TestFailoverEngine_CanHandle (0.00s)
+=== RUN   TestFailoverEngine_IsAvailable
+--- PASS: TestFailoverEngine_IsAvailable (0.00s)
+=== RUN   TestFailoverEngine_GetFailures
+--- PASS: TestFailoverEngine_GetFailures (0.00s)
+=== RUN   TestFailoverEngine_ConcurrentAccess
+--- PASS: TestFailoverEngine_ConcurrentAccess (0.00s)
+=== RUN   TestEngineHealth_StatusString
+--- PASS: TestEngineHealth_StatusString (0.00s)
+PASS
+coverage: 61.6% of statements
+ok  	github.com/campus/collector/internal/engine	3.598s	coverage: 61.6% of statements
+=== RUN   TestNewAuthHandler
+--- PASS: TestNewAuthHandler (0.00s)
+=== RUN   TestAuthHandler_Register
+=== RUN   TestAuthHandler_Register/valid_registration
+=== RUN   TestAuthHandler_Register/short_username
+=== RUN   TestAuthHandler_Register/short_password
+=== RUN   TestAuthHandler_Register/duplicate_username
+--- PASS: TestAuthHandler_Register (0.11s)
+    --- PASS: TestAuthHandler_Register/valid_registration (0.06s)
+    --- PASS: TestAuthHandler_Register/short_username (0.00s)
+    --- PASS: TestAuthHandler_Register/short_password (0.00s)
+    --- PASS: TestAuthHandler_Register/duplicate_username (0.05s)
+=== RUN   TestAuthHandler_Login
+=== RUN   TestAuthHandler_Login/valid_login
+=== RUN   TestAuthHandler_Login/invalid_password
+=== RUN   TestAuthHandler_Login/nonexistent_user
+--- PASS: TestAuthHandler_Login (0.16s)
+    --- PASS: TestAuthHandler_Login/valid_login (0.05s)
+    --- PASS: TestAuthHandler_Login/invalid_password (0.05s)
+    --- PASS: TestAuthHandler_Login/nonexistent_user (0.00s)
+=== RUN   TestAuthHandler_RefreshToken
+=== RUN   TestAuthHandler_RefreshToken/valid_refresh_token
+=== RUN   TestAuthHandler_RefreshToken/invalid_refresh_token
+=== RUN   TestAuthHandler_RefreshToken/empty_refresh_token
+--- PASS: TestAuthHandler_RefreshToken (0.11s)
+    --- PASS: TestAuthHandler_RefreshToken/valid_refresh_token (0.00s)
+    --- PASS: TestAuthHandler_RefreshToken/invalid_refresh_token (0.00s)
+    --- PASS: TestAuthHandler_RefreshToken/empty_refresh_token (0.00s)
+=== RUN   TestAuthHandler_Logout
+--- PASS: TestAuthHandler_Logout (0.11s)
+=== RUN   TestAuthMiddleware
+=== RUN   TestAuthMiddleware/valid_token
+=== RUN   TestAuthMiddleware/missing_authorization_header
+=== RUN   TestAuthMiddleware/invalid_authorization_format
+=== RUN   TestAuthMiddleware/invalid_token
+--- PASS: TestAuthMiddleware (0.00s)
+    --- PASS: TestAuthMiddleware/valid_token (0.00s)
+    --- PASS: TestAuthMiddleware/missing_authorization_header (0.00s)
+    --- PASS: TestAuthMiddleware/invalid_authorization_format (0.00s)
+    --- PASS: TestAuthMiddleware/invalid_token (0.00s)
+=== RUN   TestWriteJSON
+--- PASS: TestWriteJSON (0.00s)
+=== RUN   TestWriteError
+--- PASS: TestWriteError (0.00s)
+=== RUN   TestSanitizeFilename_Normal
+--- PASS: TestSanitizeFilename_Normal (0.00s)
+=== RUN   TestSanitizeFilename_IllegalChars
+    task_d14_test.go:49: sanitizeFilename("path\\file.mp4") should replace illegal chars with underscore
+    task_d14_test.go:49: sanitizeFilename("path/file.mp4") should replace illegal chars with underscore
+    task_d14_test.go:49: sanitizeFilename("file*:|<>?/\\name.mp4") should replace illegal chars with underscore
+--- FAIL: TestSanitizeFilename_IllegalChars (0.00s)
+=== RUN   TestSanitizeFilename_TooLong
+--- PASS: TestSanitizeFilename_TooLong (0.00s)
+=== RUN   TestSanitizeFilename_PathTraversal
+--- PASS: TestSanitizeFilename_PathTraversal (0.00s)
+=== RUN   TestSanitizeFilename_WindowsReserved
+    task_d14_test.go:100: sanitizeFilename("CON") = "_CON" (Windows reserved name handling)
+    task_d14_test.go:100: sanitizeFilename("PRN") = "_PRN" (Windows reserved name handling)
+    task_d14_test.go:100: sanitizeFilename("AUX") = "_AUX" (Windows reserved name handling)
+    task_d14_test.go:100: sanitizeFilename("NUL") = "_NUL" (Windows reserved name handling)
+    task_d14_test.go:100: sanitizeFilename("COM1") = "_COM1" (Windows reserved name handling)
+    task_d14_test.go:100: sanitizeFilename("COM2") = "_COM2" (Windows reserved name handling)
+    task_d14_test.go:100: sanitizeFilename("COM3") = "_COM3" (Windows reserved name handling)
+    task_d14_test.go:100: sanitizeFilename("COM4") = "_COM4" (Windows reserved name handling)
+    task_d14_test.go:100: sanitizeFilename("COM5") = "_COM5" (Windows reserved name handling)
+    task_d14_test.go:100: sanitizeFilename("COM6") = "_COM6" (Windows reserved name handling)
+    task_d14_test.go:100: sanitizeFilename("COM7") = "_COM7" (Windows reserved name handling)
+    task_d14_test.go:100: sanitizeFilename("COM8") = "_COM8" (Windows reserved name handling)
+    task_d14_test.go:100: sanitizeFilename("COM9") = "_COM9" (Windows reserved name handling)
+    task_d14_test.go:100: sanitizeFilename("LPT1") = "_LPT1" (Windows reserved name handling)
+    task_d14_test.go:100: sanitizeFilename("LPT2") = "_LPT2" (Windows reserved name handling)
+    task_d14_test.go:100: sanitizeFilename("LPT3") = "_LPT3" (Windows reserved name handling)
+    task_d14_test.go:100: sanitizeFilename("LPT4") = "_LPT4" (Windows reserved name handling)
+    task_d14_test.go:100: sanitizeFilename("LPT5") = "_LPT5" (Windows reserved name handling)
+    task_d14_test.go:100: sanitizeFilename("LPT6") = "_LPT6" (Windows reserved name handling)
+    task_d14_test.go:100: sanitizeFilename("LPT7") = "_LPT7" (Windows reserved name handling)
+    task_d14_test.go:100: sanitizeFilename("LPT8") = "_LPT8" (Windows reserved name handling)
+    task_d14_test.go:100: sanitizeFilename("LPT9") = "_LPT9" (Windows reserved name handling)
+--- PASS: TestSanitizeFilename_WindowsReserved (0.00s)
+=== RUN   TestSanitizeFilename_Unicode
+--- PASS: TestSanitizeFilename_Unicode (0.00s)
+=== RUN   TestDownloadFile_Success
+    task_d14_test.go:139: 闇€瑕佸畬鏁寸殑鏁版嵁搴撳拰璁よ瘉鐜锛屽湪闆嗘垚娴嬭瘯涓墽琛?--- SKIP: TestDownloadFile_Success (0.00s)
+=== RUN   TestDownloadFile_NotFound
+    task_d14_test.go:144: 闇€瑕佸畬鏁寸殑鏁版嵁搴撳拰璁よ瘉鐜锛屽湪闆嗘垚娴嬭瘯涓墽琛?--- SKIP: TestDownloadFile_NotFound (0.00s)
+=== RUN   TestDownloadFile_RangeRequest
+    task_d14_test.go:158: 闇€瑕佸畬鏁寸殑鏁版嵁搴撳拰璁よ瘉鐜锛屽湪闆嗘垚娴嬭瘯涓墽琛?--- SKIP: TestDownloadFile_RangeRequest (0.00s)
+=== RUN   TestDownloadFile_InvalidRange
+    task_d14_test.go:163: 闇€瑕佸畬鏁寸殑鏁版嵁搴撳拰璁よ瘉鐜锛屽湪闆嗘垚娴嬭瘯涓墽琛?--- SKIP: TestDownloadFile_InvalidRange (0.00s)
+=== RUN   TestDownloadFile_AuditLog
+    task_d14_test.go:168: 闇€瑕佸畬鏁寸殑鏁版嵁搴撳拰璁よ瘉鐜锛屽湪闆嗘垚娴嬭瘯涓墽琛?--- SKIP: TestDownloadFile_AuditLog (0.00s)
+=== RUN   TestDownloadFile_Unauthorized
+    task_d14_test.go:173: 闇€瑕佸畬鏁寸殑鏁版嵁搴撳拰璁よ瘉鐜锛屽湪闆嗘垚娴嬭瘯涓墽琛?--- SKIP: TestDownloadFile_Unauthorized (0.00s)
+=== RUN   TestDownloadFile_Forbidden
+    task_d14_test.go:178: 闇€瑕佸畬鏁寸殑鏁版嵁搴撳拰璁よ瘉鐜锛屽湪闆嗘垚娴嬭瘯涓墽琛?--- SKIP: TestDownloadFile_Forbidden (0.00s)
+=== RUN   TestDownloadFile_Incomplete
+    task_d14_test.go:183: 闇€瑕佸畬鏁寸殑鏁版嵁搴撳拰璁よ瘉鐜锛屽湪闆嗘垚娴嬭瘯涓墽琛?--- SKIP: TestDownloadFile_Incomplete (0.00s)
+=== RUN   TestCancelTask_TerminalStatus
+--- PASS: TestCancelTask_TerminalStatus (0.02s)
+=== RUN   TestGetBatchProgress_EmptyBatch
+--- PASS: TestGetBatchProgress_EmptyBatch (0.02s)
+=== RUN   TestCreateBatchTask_WithWhitespaceURLs
+--- PASS: TestCreateBatchTask_WithWhitespaceURLs (0.02s)
+=== RUN   TestCreateBatchTask_DefaultQuality
+--- PASS: TestCreateBatchTask_DefaultQuality (0.02s)
+=== RUN   TestCreateBatchTask_DefaultPriority
+--- PASS: TestCreateBatchTask_DefaultPriority (0.02s)
+=== RUN   TestBatchTaskStatusTransition
+--- PASS: TestBatchTaskStatusTransition (0.02s)
+=== RUN   TestGetBatchProgress_PartialCompletion
+--- PASS: TestGetBatchProgress_PartialCompletion (0.03s)
+=== RUN   TestGetBatchProgress_InvalidBatchID
+--- PASS: TestGetBatchProgress_InvalidBatchID (0.01s)
+=== RUN   TestCancelTask_InvalidTaskID
+--- PASS: TestCancelTask_InvalidTaskID (0.01s)
+=== RUN   TestCreateBatchTask_SingleURL
+--- PASS: TestCreateBatchTask_SingleURL (0.02s)
+=== RUN   TestBatchProgressResponseStructure
+--- PASS: TestBatchProgressResponseStructure (0.02s)
+=== RUN   TestCreateBatchTask_Success
+--- PASS: TestCreateBatchTask_Success (0.02s)
+=== RUN   TestCreateBatchTask_EmptyURLs
+--- PASS: TestCreateBatchTask_EmptyURLs (0.02s)
+=== RUN   TestCreateBatchTask_InvalidURL
+--- PASS: TestCreateBatchTask_InvalidURL (0.01s)
+=== RUN   TestCreateBatchTask_TooManyURLs
+--- PASS: TestCreateBatchTask_TooManyURLs (0.01s)
+=== RUN   TestGetBatchProgress_Success
+--- PASS: TestGetBatchProgress_Success (0.02s)
+=== RUN   TestGetBatchProgress_NotFound
+--- PASS: TestGetBatchProgress_NotFound (0.01s)
+=== RUN   TestCancelTask_Success
+    task_test.go:415: MockEngine 绔嬪嵆瀹屾垚浠诲姟锛屾棤娉曟祴璇曞彇娑堝姛鑳?--- SKIP: TestCancelTask_Success (0.00s)
+=== RUN   TestCancelTask_NotFound
+--- PASS: TestCancelTask_NotFound (0.01s)
+=== RUN   TestCleanupTempFiles
+--- PASS: TestCleanupTempFiles (0.00s)
+=== RUN   TestBatchProgressAggregation
+--- PASS: TestBatchProgressAggregation (0.02s)
+=== RUN   TestURLValidation
+=== RUN   TestURLValidation/鏈夋晥_HTTP_URL
+=== RUN   TestURLValidation/鏈夋晥_HTTPS_URL
+=== RUN   TestURLValidation/绌篲URL
+=== RUN   TestURLValidation/鏃犳晥_URL
+=== RUN   TestURLValidation/缂哄皯鍗忚
+--- PASS: TestURLValidation (0.00s)
+    --- PASS: TestURLValidation/鏈夋晥_HTTP_URL (0.00s)
+    --- PASS: TestURLValidation/鏈夋晥_HTTPS_URL (0.00s)
+    --- PASS: TestURLValidation/绌篲URL (0.00s)
+    --- PASS: TestURLValidation/鏃犳晥_URL (0.00s)
+    --- PASS: TestURLValidation/缂哄皯鍗忚 (0.00s)
+=== RUN   TestCancelTask_Unauthorized
+--- PASS: TestCancelTask_Unauthorized (0.02s)
+=== RUN   TestCancelTask_AdminCanCancelAny
+    task_test.go:620: MockEngine 绔嬪嵆瀹屾垚浠诲姟锛屾棤娉曟祴璇曞彇娑堝姛鑳?--- SKIP: TestCancelTask_AdminCanCancelAny (0.00s)
+=== RUN   TestProgressHub_Subscribe
+--- PASS: TestProgressHub_Subscribe (0.00s)
+=== RUN   TestProgressHub_Unsubscribe_DoubleClose
+--- PASS: TestProgressHub_Unsubscribe_DoubleClose (0.00s)
+=== RUN   TestProgressHub_Broadcast
+    websocket_test.go:97: 瓒呮椂鏈敹鍒版秷鎭?--- FAIL: TestProgressHub_Broadcast (0.10s)
+=== RUN   TestProgressHub_Broadcast_Backpressure
+2026/03/30 08:48:34 WebSocket client connected: user=0, task=, batch=
+--- PASS: TestProgressHub_Broadcast_Backpressure (0.06s)
+=== RUN   TestWebSocketHandler_HandleProgressStream
+coverage: 31.3% of statements
+panic: test timed out after 10m0s
+	running tests:
+		TestWebSocketHandler_HandleProgressStream (9m59s)
+
+goroutine 206 [running]:
+testing.(*M).startAlarm.func1()
+	C:/Program Files/Go/src/testing/testing.go:2682 +0x345
+created by time.goFunc
+	C:/Program Files/Go/src/time/sleep.go:215 +0x2d
+
+goroutine 1 [chan receive, 9 minutes]:
+testing.(*T).Run(0xc0001d2000, {0x7ff67224a736?, 0x7ff6720eb8e8?}, 0x7ff67225f5c0)
+	C:/Program Files/Go/src/testing/testing.go:2005 +0x469
+testing.runTests.func1(0xc0001d2000)
+	C:/Program Files/Go/src/testing/testing.go:2477 +0x37
+testing.tRunner(0xc0001d2000, 0xc0000e7ba8)
+	C:/Program Files/Go/src/testing/testing.go:1934 +0xc3
+testing.runTests(0xc000185ef0, {0x7ff6721554e0, 0x41, 0x41}, {0x0?, 0x0?, 0x7ff6725a1040?})
+	C:/Program Files/Go/src/testing/testing.go:2475 +0x4b4
+testing.(*M).Run(0xc000094460)
+	C:/Program Files/Go/src/testing/testing.go:2337 +0x63a
+github.com/campus/collector/internal/handler.TestMain(0xc000094460)
+	F:/鏍″洯璧勬簮閲囬泦绯荤粺/internal/handler/auth_test.go:74 +0x252
+main.main()
+	_testmain.go:185 +0xa5
+
+goroutine 8 [select, 9 minutes]:
+database/sql.(*DB).connectionOpener(0xc000035ad0, {0x7ff6722e5440, 0xc0000d00a0})
+	C:/Program Files/Go/src/database/sql/sql.go:1261 +0x87
+created by database/sql.OpenDB in goroutine 1
+	C:/Program Files/Go/src/database/sql/sql.go:841 +0x130
+
+goroutine 204 [select]:
+github.com/campus/collector/internal/handler.(*WebSocketHandler).HandleProgressStream(0xc00034cd90, {0x7ff6722e4920, 0xc000146840}, 0xc000455680)
+	F:/鏍″洯璧勬簮閲囬泦绯荤粺/internal/handler/websocket.go:414 +0xaa7
+github.com/campus/collector/internal/handler.TestWebSocketHandler_HandleProgressStream(0xc00037f880)
+	F:/鏍″洯璧勬簮閲囬泦绯荤粺/internal/handler/websocket_test.go:152 +0x1cc
+testing.tRunner(0xc00037f880, 0x7ff67225f5c0)
+	C:/Program Files/Go/src/testing/testing.go:1934 +0xc3
+created by testing.(*T).Run in goroutine 1
+	C:/Program Files/Go/src/testing/testing.go:1997 +0x44b
+
+goroutine 201 [select, 9 minutes]:
+github.com/campus/collector/internal/handler.(*ProgressHub).run(0xc00013a730)
+	F:/鏍″洯璧勬簮閲囬泦绯荤粺/internal/handler/websocket.go:76 +0x126
+created by github.com/campus/collector/internal/handler.GetProgressHub.func1 in goroutine 200
+	F:/鏍″洯璧勬簮閲囬泦绯荤粺/internal/handler/websocket.go:68 +0x15b
+
+goroutine 232 [select, 9 minutes]:
+github.com/campus/collector/internal/engine.(*TaskScheduler).consumerLoop(0xc0001366e0)
+	F:/鏍″洯璧勬簮閲囬泦绯荤粺/internal/engine/scheduler.go:194 +0x8c
+created by github.com/campus/collector/internal/engine.NewTaskScheduler in goroutine 204
+	F:/鏍″洯璧勬簮閲囬泦绯荤粺/internal/engine/scheduler.go:188 +0x1bf
+
+goroutine 205 [select, 9 minutes]:
+database/sql.(*DB).connectionOpener(0xc000140c30, {0x7ff6722e5440, 0xc00013a960})
+	C:/Program Files/Go/src/database/sql/sql.go:1261 +0x87
+created by database/sql.OpenDB in goroutine 204
+	C:/Program Files/Go/src/database/sql/sql.go:841 +0x130
+FAIL	github.com/campus/collector/internal/handler	601.163s
+=== RUN   TestDefaultConfig
+--- PASS: TestDefaultConfig (0.00s)
+=== RUN   TestNewRotator
+--- PASS: TestNewRotator (0.00s)
+=== RUN   TestNewRotatorDefaultConfig
+--- PASS: TestNewRotatorDefaultConfig (0.00s)
+=== RUN   TestGetLogStats
+--- PASS: TestGetLogStats (0.00s)
+=== RUN   TestGetLogStatsEmpty
+--- PASS: TestGetLogStatsEmpty (0.00s)
+=== RUN   TestCheckAndRotate
+--- PASS: TestCheckAndRotate (0.00s)
+=== RUN   TestRotateFile
+--- PASS: TestRotateFile (0.02s)
+=== RUN   TestCompressFile
+--- PASS: TestCompressFile (0.01s)
+=== RUN   TestCleanupOldFiles
+--- PASS: TestCleanupOldFiles (0.00s)
+=== RUN   TestGetLogFiles
+--- PASS: TestGetLogFiles (0.00s)
+=== RUN   TestRotatorConcurrent
+--- PASS: TestRotatorConcurrent (0.01s)
+=== RUN   TestRotate
+--- PASS: TestRotate (0.00s)
+=== RUN   TestRotateWithLargeFile
+--- PASS: TestRotateWithLargeFile (0.01s)
+=== RUN   TestRotateEmptyDir
+--- PASS: TestRotateEmptyDir (0.00s)
+=== RUN   TestGetLogStatsWithMultipleFiles
+--- PASS: TestGetLogStatsWithMultipleFiles (0.01s)
+PASS
+coverage: 68.3% of statements
+ok  	github.com/campus/collector/internal/logrotate	0.398s	coverage: 68.3% of statements
+=== RUN   TestNewWhitelistManager
+--- PASS: TestNewWhitelistManager (0.00s)
+=== RUN   TestWhitelistManager_AddDomain
+--- PASS: TestWhitelistManager_AddDomain (0.00s)
+=== RUN   TestWhitelistManager_AddDomain_Normalizes
+--- PASS: TestWhitelistManager_AddDomain_Normalizes (0.00s)
+=== RUN   TestWhitelistManager_RemoveDomain
+--- PASS: TestWhitelistManager_RemoveDomain (0.00s)
+=== RUN   TestWhitelistManager_IsAllowed
+=== RUN   TestWhitelistManager_IsAllowed/bilibili.com
+=== RUN   TestWhitelistManager_IsAllowed/www.bilibili.com
+=== RUN   TestWhitelistManager_IsAllowed/BILIBILI.COM
+=== RUN   TestWhitelistManager_IsAllowed/youtube.com
+=== RUN   TestWhitelistManager_IsAllowed/v.qq.com
+=== RUN   TestWhitelistManager_IsAllowed/qq.com
+=== RUN   TestWhitelistManager_IsAllowed/google.com
+=== RUN   TestWhitelistManager_IsAllowed/example.com
+=== RUN   TestWhitelistManager_IsAllowed/#00
+--- PASS: TestWhitelistManager_IsAllowed (0.00s)
+    --- PASS: TestWhitelistManager_IsAllowed/bilibili.com (0.00s)
+    --- PASS: TestWhitelistManager_IsAllowed/www.bilibili.com (0.00s)
+    --- PASS: TestWhitelistManager_IsAllowed/BILIBILI.COM (0.00s)
+    --- PASS: TestWhitelistManager_IsAllowed/youtube.com (0.00s)
+    --- PASS: TestWhitelistManager_IsAllowed/v.qq.com (0.00s)
+    --- PASS: TestWhitelistManager_IsAllowed/qq.com (0.00s)
+    --- PASS: TestWhitelistManager_IsAllowed/google.com (0.00s)
+    --- PASS: TestWhitelistManager_IsAllowed/example.com (0.00s)
+    --- PASS: TestWhitelistManager_IsAllowed/#00 (0.00s)
+=== RUN   TestWhitelistManager_GetDomains
+--- PASS: TestWhitelistManager_GetDomains (0.00s)
+=== RUN   TestWhitelistManager_UpdateDomains
+--- PASS: TestWhitelistManager_UpdateDomains (0.00s)
+=== RUN   TestNormalizeDomain
+=== RUN   TestNormalizeDomain/bilibili.com
+=== RUN   TestNormalizeDomain/www.bilibili.com
+=== RUN   TestNormalizeDomain/BILIBILI.COM
+=== RUN   TestNormalizeDomain/WWW.YouTube.COM
+=== RUN   TestNormalizeDomain/__bilibili.com__
+=== RUN   TestNormalizeDomain/.bilibili.com.
+=== RUN   TestNormalizeDomain/#00
+=== RUN   TestNormalizeDomain/___
+--- PASS: TestNormalizeDomain (0.00s)
+    --- PASS: TestNormalizeDomain/bilibili.com (0.00s)
+    --- PASS: TestNormalizeDomain/www.bilibili.com (0.00s)
+    --- PASS: TestNormalizeDomain/BILIBILI.COM (0.00s)
+    --- PASS: TestNormalizeDomain/WWW.YouTube.COM (0.00s)
+    --- PASS: TestNormalizeDomain/__bilibili.com__ (0.00s)
+    --- PASS: TestNormalizeDomain/.bilibili.com. (0.00s)
+    --- PASS: TestNormalizeDomain/#00 (0.00s)
+    --- PASS: TestNormalizeDomain/___ (0.00s)
+=== RUN   TestExtractDomain
+=== RUN   TestExtractDomain/https_with_www
+=== RUN   TestExtractDomain/https_without_www
+=== RUN   TestExtractDomain/http_protocol
+=== RUN   TestExtractDomain/without_protocol
+=== RUN   TestExtractDomain/invalid_URL
+=== RUN   TestExtractDomain/URL_with_port
+--- PASS: TestExtractDomain (0.00s)
+    --- PASS: TestExtractDomain/https_with_www (0.00s)
+    --- PASS: TestExtractDomain/https_without_www (0.00s)
+    --- PASS: TestExtractDomain/http_protocol (0.00s)
+    --- PASS: TestExtractDomain/without_protocol (0.00s)
+    --- PASS: TestExtractDomain/invalid_URL (0.00s)
+    --- PASS: TestExtractDomain/URL_with_port (0.00s)
+=== RUN   TestValidateURL
+=== RUN   TestValidateURL/valid_bilibili
+=== RUN   TestValidateURL/valid_youtube
+=== RUN   TestValidateURL/valid_qq
+=== RUN   TestValidateURL/invalid_domain
+=== RUN   TestValidateURL/invalid_URL_format
+--- PASS: TestValidateURL (0.00s)
+    --- PASS: TestValidateURL/valid_bilibili (0.00s)
+    --- PASS: TestValidateURL/valid_youtube (0.00s)
+    --- PASS: TestValidateURL/valid_qq (0.00s)
+    --- PASS: TestValidateURL/invalid_domain (0.00s)
+    --- PASS: TestValidateURL/invalid_URL_format (0.00s)
+=== RUN   TestURLValidationError_Error
+--- PASS: TestURLValidationError_Error (0.00s)
+=== RUN   TestWriteError
+--- PASS: TestWriteError (0.00s)
+=== RUN   TestWriteURLValidationError
+--- PASS: TestWriteURLValidationError (0.00s)
+=== RUN   TestWhitelistMiddleware
+--- PASS: TestWhitelistMiddleware (0.00s)
+PASS
+coverage: 93.5% of statements
+ok  	github.com/campus/collector/internal/middleware	0.814s	coverage: 93.5% of statements
+=== RUN   TestCheckCommand
+--- PASS: TestCheckCommand (0.01s)
+=== RUN   TestHealthHandler
+--- PASS: TestHealthHandler (0.01s)
+=== RUN   TestHealthzHandler
+--- PASS: TestHealthzHandler (0.00s)
+=== RUN   TestReadyHandler
+--- PASS: TestReadyHandler (0.00s)
+=== RUN   TestLiveHandler
+--- PASS: TestLiveHandler (0.00s)
+=== RUN   TestMetricsHandler
+--- PASS: TestMetricsHandler (0.00s)
+=== RUN   TestAPIMetricsHandler
+--- PASS: TestAPIMetricsHandler (0.00s)
+=== RUN   TestServerStartTime
+--- PASS: TestServerStartTime (0.00s)
+=== RUN   TestHealthStatusConcurrent
+--- PASS: TestHealthStatusConcurrent (0.00s)
+=== RUN   TestHealthStatusLogic
+=== RUN   TestHealthStatusLogic/healthy_all
+=== RUN   TestHealthStatusLogic/healthy_ytdlp_only
+=== RUN   TestHealthStatusLogic/healthy_ffmpeg_only
+=== RUN   TestHealthStatusLogic/degraded_no_engines
+=== RUN   TestHealthStatusLogic/unhealthy_no_db
+--- PASS: TestHealthStatusLogic (0.00s)
+    --- PASS: TestHealthStatusLogic/healthy_all (0.00s)
+    --- PASS: TestHealthStatusLogic/healthy_ytdlp_only (0.00s)
+    --- PASS: TestHealthStatusLogic/healthy_ffmpeg_only (0.00s)
+    --- PASS: TestHealthStatusLogic/degraded_no_engines (0.00s)
+    --- PASS: TestHealthStatusLogic/unhealthy_no_db (0.00s)
+=== RUN   TestDependencyStatus
+--- PASS: TestDependencyStatus (0.00s)
+=== RUN   TestHealthStatusStructure
+--- PASS: TestHealthStatusStructure (0.00s)
+PASS
+coverage: 30.2% of statements
+ok  	github.com/campus/collector/internal/server	0.906s	coverage: 30.2% of statements
+	github.com/campus/collector/cmd/keygen		coverage: 0.0% of statements
+	github.com/campus/collector/cmd/server		coverage: 0.0% of statements
+FAIL
