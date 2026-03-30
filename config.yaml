@@ -1,5 +1,5 @@
 # 校园资源采集系统配置文件
-# 版本: v1.0
+# 首次启动时会自动创建默认管理员账号
 
 # 服务器配置
 server:
@@ -19,9 +19,15 @@ auth:
   # 使用 cmd/keygen 生成密钥对
   private_key: "./keys/private.pem"
   public_key: "./keys/public.pem"
-  jwt_secret: "${JWT_SECRET:-change-me-in-production}" # 备用密钥（不推荐）
   token_expiry: 60 # 分钟
-  refresh_expiry: 1440 # 分钟 (24小时)
+  refresh_expiry: 1440 # 分钟 (24 小时)
+  # 默认管理员配置（首次启动时自动创建）
+  default_admin:
+    enabled: true
+    username: "admin"
+    password: "admin123"
+    email: "admin@localhost"
+  # LDAP 配置
   ldap:
     enabled: false
     url: "ldap://ldap.example.com:389"
@@ -34,10 +40,11 @@ auth:
 download:
   concurrent: 10
   max_retries: 3
-  timeout: 3600        # 秒 (1小时)
-  max_file_size: 10737418240  # 10GB
+  timeout: 3600 # 秒 (1 小时)
+  max_file_size: 10737418240 # 10GB
   temp_dir: "./temp"
   output_dir: "./downloads"
+  # 允许下载的域名白名单
   whitelist:
     - "bilibili.com"
     - "youtube.com"
@@ -48,36 +55,31 @@ download:
 
 # 日志配置
 log:
-  level: "info"
+  level: "info" # debug, info, warn, error
   dir: "./logs"
-  max_size: 100  # MB
-  max_age: 7     # 天
+  max_size: 100 # MB
+  max_age: 7 # 天
   compress: true
 
 # 安全配置
 security:
   allowed_hosts:
-  - "localhost"
-  - "127.0.0.1"
+    - "localhost"
+    - "127.0.0.1"
   enable_rate_limit: true
-  rate_limit_rps: 100
+  rate_limit_rps: 100 # 每秒请求数
 
 # 告警配置
 alert:
-  enable_disk_alert: true       # 启用磁盘空间告警
-  disk_threshold: 0.8           # 磁盘使用率阈值 (80%)
-  check_interval: 5             # 检查间隔 (分钟)
-  enable_webhook: false         # 启用 Webhook 告警
-  webhook_url: ""               # Webhook URL
-  webhook_type: "dingtalk"      # Webhook 类型：dingtalk, wechat, feishu
-  enable_email: false           # 启用邮件告警
-  email_smtp_server: "smtp.example.com"
-  email_smtp_port: 587
-  email_from: "alert@example.com"
-  email_password: "${EMAIL_PASSWORD:-}"
-  email_to:
-  - "admin@example.com"
-  email_use_tls: true
-  email_auth_type: "PLAIN"      # 认证类型：LOGIN, PLAIN
-  enable_log_alert: false       # 启用日志告警
-  log_alert_threshold: 100      # 日志告警阈值（条/分钟）
+  # Webhook 告警（钉钉/企业微信）
+  webhook_url: "${ALERT_WEBHOOK:-}"
+  # 邮件告警
+  email:
+    enabled: false
+    smtp_host: "smtp.example.com"
+    smtp_port: 587
+    smtp_user: "alert@example.com"
+    smtp_password: "${SMTP_PASSWORD:-}"
+    from: "alert@example.com"
+    to:
+      - "admin@example.com"

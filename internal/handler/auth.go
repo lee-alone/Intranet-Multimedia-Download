@@ -312,6 +312,50 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// GetCurrentUser 获取当前用户信息
+func (h *AuthHandler) GetCurrentUser(w http.ResponseWriter, r *http.Request) {
+	claims, ok := r.Context().Value(ClaimsContextKey).(*auth.Claims)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	// 查询用户详细信息
+	var user struct {
+		ID        int
+		Username  string
+		Email     sql.NullString
+		Role      string
+		MFAEnabled bool
+	}
+
+	err := h.db.QueryRow(
+		"SELECT id, username, email, role, mfa_enabled FROM users WHERE id = ?",
+		claims.UserID,
+	).Scan(&user.ID, &user.Username, &user.Email, &user.Role, &user.MFAEnabled)
+
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Failed to get user info")
+		return
+	}
+
+	email := ""
+	if user.Email.Valid {
+		email = user.Email.String
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"data": map[string]interface{}{
+			"id":         user.ID,
+			"username":   user.Username,
+			"email":      email,
+			"role":       user.Role,
+			"mfa_enabled": user.MFAEnabled,
+		},
+	})
+}
+
 // MFARequest MFA 请求
 type MFARequest struct {
 	Enabled bool   `json:"enabled"`

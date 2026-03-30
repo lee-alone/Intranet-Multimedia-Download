@@ -1,17 +1,15 @@
-// Package config 提供配置加载和验证功能
+// Package config 提供配置加载功能
 package config
 
 import (
 	"fmt"
 	"os"
-	"regexp"
-	"strconv"
-	"strings"
+	"path/filepath"
 
 	"gopkg.in/yaml.v3"
 )
 
-// Config 是应用程序的主配置结构
+// Config 系统配置
 type Config struct {
 	Server   ServerConfig   `yaml:"server"`
 	Database DatabaseConfig `yaml:"database"`
@@ -38,19 +36,84 @@ type DatabaseConfig struct {
 
 // AuthConfig 认证配置
 type AuthConfig struct {
-	JWTSecret     string     `yaml:"jwt_secret"`
-	PrivateKey    string     `yaml:"private_key"`    // RS256 私钥文件路径
-	PublicKey     string     `yaml:"public_key"`     // RS256 公钥文件路径
-	TokenExpiry   int        `yaml:"token_expiry"`   // 分钟
-	RefreshExpiry int        `yaml:"refresh_expiry"` // 分钟
-	LDAP          LDAPConfig `yaml:"ldap"`
-	SSO           SSOConfig  `yaml:"sso"`
+	PrivateKey    string             `yaml:"private_key"`
+	PublicKey     string             `yaml:"public_key"`
+	TokenExpiry   int                `yaml:"token_expiry"`
+	RefreshExpiry int                `yaml:"refresh_expiry"`
+	LDAP          LDAPConfig         `yaml:"ldap"`
+	SSO           SSOConfig          `yaml:"sso"`
+	DefaultAdmin  DefaultAdminConfig `yaml:"default_admin"`
+}
+
+// DefaultAdminConfig 默认管理员配置
+type DefaultAdminConfig struct {
+	Enabled  bool   `yaml:"enabled"`
+	Username string `yaml:"username"`
+	Password string `yaml:"password"`
+	Email    string `yaml:"email"`
+}
+
+// DownloadConfig 下载配置
+type DownloadConfig struct {
+	Concurrent int      `yaml:"concurrent"`
+	MaxRetries int      `yaml:"max_retries"`
+	Timeout    int      `yaml:"timeout"`
+	MaxSize    int64    `yaml:"max_file_size"`
+	TempDir    string   `yaml:"temp_dir"`
+	OutputDir  string   `yaml:"output_dir"`
+	Whitelist  []string `yaml:"whitelist"`
+}
+
+// LogConfig 日志配置
+type LogConfig struct {
+	Level    string `yaml:"level"`
+	Dir      string `yaml:"dir"`
+	MaxSize  int    `yaml:"max_size"`
+	MaxAge   int    `yaml:"max_age"`
+	Compress bool   `yaml:"compress"`
+}
+
+// SecurityConfig 安全配置
+type SecurityConfig struct {
+	AllowedHosts    []string `yaml:"allowed_hosts"`
+	EnableRateLimit bool     `yaml:"enable_rate_limit"`
+	RateLimitRPS    int      `yaml:"rate_limit_rps"`
+}
+
+// AlertConfig 告警配置
+type AlertConfig struct {
+	EnableDiskAlert   bool     `yaml:"enable_disk_alert"`
+	DiskThreshold     float64  `yaml:"disk_threshold"`
+	CheckInterval     int      `yaml:"check_interval"`
+	EnableWebhook     bool     `yaml:"enable_webhook"`
+	WebhookURL        string   `yaml:"webhook_url"`
+	WebhookType       string   `yaml:"webhook_type"`
+	EnableEmail       bool     `yaml:"enable_email"`
+	EmailSMTPServer   string   `yaml:"email_smtp_server"`
+	EmailSMTPPort     int      `yaml:"email_smtp_port"`
+	EmailFrom         string   `yaml:"email_from"`
+	EmailPassword     string   `yaml:"email_password"`
+	EmailTo           []string `yaml:"email_to"`
+	EmailUseTLS       bool     `yaml:"email_use_tls"`
+	EmailAuthType     string   `yaml:"email_auth_type"`
+	EnableLogAlert    bool     `yaml:"enable_log_alert"`
+	LogAlertThreshold int      `yaml:"log_alert_threshold"`
+}
+
+// LDAPConfig LDAP 配置
+type LDAPConfig struct {
+	Enabled  bool   `yaml:"enabled"`
+	URL      string `yaml:"url"`
+	BindDN   string `yaml:"bind_dn"`
+	Password string `yaml:"password"`
+	BaseDN   string `yaml:"base_dn"`
+	Timeout  int    `yaml:"timeout"`
 }
 
 // SSOConfig SSO 配置
 type SSOConfig struct {
 	Enabled    bool         `yaml:"enabled"`
-	Provider   string       `yaml:"provider"` // "cas" or "oauth2"
+	Provider   string       `yaml:"provider"`
 	CASURL     string       `yaml:"cas_url"`
 	CASService string       `yaml:"cas_service"`
 	OAuth2     OAuth2Config `yaml:"oauth2"`
@@ -67,295 +130,193 @@ type OAuth2Config struct {
 	RedirectURL  string   `yaml:"redirect_url"`
 }
 
-// LDAPConfig LDAP 配置
-type LDAPConfig struct {
-	Enabled  bool   `yaml:"enabled"`
-	URL      string `yaml:"url"`
-	BindDN   string `yaml:"bind_dn"`
-	Password string `yaml:"password"`
-	BaseDN   string `yaml:"base_dn"`
-	Timeout  int    `yaml:"timeout"` // 秒
+// AlertEmailConfig 告警邮件配置
+type AlertEmailConfig struct {
+	Enabled    bool     `yaml:"enabled"`
+	SMTPServer string   `yaml:"smtp_server"`
+	SMTPPort   int      `yaml:"smtp_port"`
+	From       string   `yaml:"from"`
+	Password   string   `yaml:"password"`
+	To         []string `yaml:"to"`
 }
 
-// DownloadConfig 下载配置
-type DownloadConfig struct {
-	Concurrent  int      `yaml:"concurrent"`
-	MaxRetries  int      `yaml:"max_retries"`
-	Timeout     int      `yaml:"timeout"`       // 秒
-	MaxFileSize int64    `yaml:"max_file_size"` // 字节
-	TempDir     string   `yaml:"temp_dir"`
-	OutputDir   string   `yaml:"output_dir"`
-	Whitelist   []string `yaml:"whitelist"`
+// GetAddress 获取服务器地址
+func (c *Config) GetAddress() string {
+	return fmt.Sprintf("%s:%d", c.Server.Host, c.Server.Port)
 }
 
-// LogConfig 日志配置
-type LogConfig struct {
-	Level    string `yaml:"level"`
-	Dir      string `yaml:"dir"`
-	MaxSize  int    `yaml:"max_size"` // MB
-	MaxAge   int    `yaml:"max_age"`  // 天
-	Compress bool   `yaml:"compress"`
-}
-
-// AlertConfig 告警配置
-type AlertConfig struct {
-	EnableDiskAlert   bool     `yaml:"enable_disk_alert"`   // 启用磁盘告警
-	DiskThreshold     float64  `yaml:"disk_threshold"`      // 磁盘使用率阈值 (0-1)
-	CheckInterval     int      `yaml:"check_interval"`      // 检查间隔 (分钟)
-	EnableWebhook     bool     `yaml:"enable_webhook"`      // 启用 Webhook
-	WebhookURL        string   `yaml:"webhook_url"`         // Webhook URL
-	WebhookType       string   `yaml:"webhook_type"`        // Webhook 类型：dingtalk, wechat, feishu
-	EnableEmail       bool     `yaml:"enable_email"`        // 启用邮件告警
-	EmailSMTPServer   string   `yaml:"email_smtp_server"`   // SMTP 服务器
-	EmailSMTPPort     int      `yaml:"email_smtp_port"`     // SMTP 端口
-	EmailFrom         string   `yaml:"email_from"`          // 发件人邮箱
-	EmailPassword     string   `yaml:"email_password"`      // 邮箱密码/授权码
-	EmailTo           []string `yaml:"email_to"`            // 收件人列表
-	EmailUseTLS       bool     `yaml:"email_use_tls"`       // 使用 TLS
-	EmailAuthType     string   `yaml:"email_auth_type"`     // 认证类型：LOGIN, PLAIN
-	EnableLogAlert    bool     `yaml:"enable_log_alert"`    // 启用日志告警
-	LogAlertThreshold int      `yaml:"log_alert_threshold"` // 日志告警阈值（条/分钟）
-}
-
-// SecurityConfig 安全配置
-type SecurityConfig struct {
-	AllowedHosts    []string `yaml:"allowed_hosts"`
-	EnableRateLimit bool     `yaml:"enable_rate_limit"`
-	RateLimitRPS    int      `yaml:"rate_limit_rps"`
-}
-
-// DefaultConfig 返回默认配置
-func DefaultConfig() *Config {
-	return &Config{
-		Server: ServerConfig{
-			Host:            "0.0.0.0",
-			Port:            8080,
-			ShutdownTimeout: 30,
-		},
-		Database: DatabaseConfig{
-			Path:     "./data/collector.db",
-			WALMode:  true,
-			MaxConns: 10,
-		},
-		Auth: AuthConfig{
-			JWTSecret:     "change-me-in-production",
-			PrivateKey:    "./keys/private.pem",
-			PublicKey:     "./keys/public.pem",
-			TokenExpiry:   60,
-			RefreshExpiry: 1440,
-			LDAP: LDAPConfig{
-				Enabled: false,
-				Timeout: 10,
-			},
-		},
-		Download: DownloadConfig{
-			Concurrent:  10,
-			MaxRetries:  3,
-			Timeout:     3600,
-			MaxFileSize: 10 * 1024 * 1024 * 1024, // 10GB
-			TempDir:     "./temp",
-			OutputDir:   "./downloads",
-			Whitelist: []string{
-				"bilibili.com",
-				"youtube.com",
-				"youku.com",
-				"iqiyi.com",
-			},
-		},
-		Log: LogConfig{
-			Level:    "info",
-			Dir:      "./logs",
-			MaxSize:  100,
-			MaxAge:   7,
-			Compress: true,
-		},
-		Security: SecurityConfig{
-			AllowedHosts:    []string{"localhost", "127.0.0.1"},
-			EnableRateLimit: true,
-			RateLimitRPS:    100,
-		},
-		Alert: AlertConfig{
-			EnableDiskAlert:   true,
-			DiskThreshold:     0.8, // 80%
-			CheckInterval:     5,   // 5 分钟
-			EnableWebhook:     false,
-			WebhookType:       "dingtalk",
-			EnableEmail:       false,
-			EmailSMTPPort:     25,
-			EmailUseTLS:       true,
-			EmailAuthType:     "PLAIN",
-			EnableLogAlert:    false,
-			LogAlertThreshold: 100,
-		},
-	}
-}
-
-// Load 从文件加载配置，支持环境变量替换
+// Load 加载配置文件
 func Load() (*Config, error) {
-	return LoadFromFile("config.yaml")
-}
+	configPath := "config.yaml"
 
-// LoadFromFile 从指定文件加载配置
-func LoadFromFile(path string) (*Config, error) {
-	// 检查文件权限
-	if err := checkFilePermissions(path); err != nil {
-		return nil, fmt.Errorf("file permission check failed: %w", err)
+	// 检查配置文件是否存在
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		// 尝试使用示例配置
+		examplePath := "config.yaml.example"
+		if _, err := os.Stat(examplePath); err == nil {
+			configPath = examplePath
+		}
 	}
 
-	// 读取文件内容
-	// #nosec G304 -- path 参数经过 checkFilePermissions 验证
-	data, err := os.ReadFile(path)
+	// 读取配置文件
+	content, err := os.ReadFile(configPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
 
-	// 环境变量替换
-	expanded := expandEnvVars(string(data))
-
-	// 解析 YAML
-	cfg := DefaultConfig()
-	if err := yaml.Unmarshal([]byte(expanded), cfg); err != nil {
-		return nil, fmt.Errorf("failed to parse config: %w", err)
+	// 解析配置
+	var cfg Config
+	if err := yaml.Unmarshal(content, &cfg); err != nil {
+		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
 
-	// 验证配置
-	if err := cfg.Validate(); err != nil {
-		return nil, fmt.Errorf("config validation failed: %w", err)
+	// 设置默认值
+	setDefaults(&cfg)
+
+	return &cfg, nil
+}
+
+// setDefaults 设置默认值
+func setDefaults(cfg *Config) {
+	// 服务器配置
+	if cfg.Server.Host == "" {
+		cfg.Server.Host = "0.0.0.0"
+	}
+	if cfg.Server.Port == 0 {
+		cfg.Server.Port = 8080
+	}
+	if cfg.Server.ShutdownTimeout == 0 {
+		cfg.Server.ShutdownTimeout = 30
 	}
 
-	return cfg, nil
+	// 数据库配置
+	if cfg.Database.Path == "" {
+		cfg.Database.Path = "./data/collector.db"
+	}
+	if cfg.Database.MaxConns == 0 {
+		cfg.Database.MaxConns = 10
+	}
+
+	// 认证配置
+	if cfg.Auth.PrivateKey == "" {
+		cfg.Auth.PrivateKey = "./keys/private.pem"
+	}
+	if cfg.Auth.PublicKey == "" {
+		cfg.Auth.PublicKey = "./keys/public.pem"
+	}
+	if cfg.Auth.TokenExpiry == 0 {
+		cfg.Auth.TokenExpiry = 60
+	}
+	if cfg.Auth.RefreshExpiry == 0 {
+		cfg.Auth.RefreshExpiry = 1440
+	}
+
+	// 默认管理员配置
+	if !cfg.Auth.DefaultAdmin.Enabled {
+		cfg.Auth.DefaultAdmin.Enabled = true
+	}
+	if cfg.Auth.DefaultAdmin.Username == "" {
+		cfg.Auth.DefaultAdmin.Username = "admin"
+	}
+	if cfg.Auth.DefaultAdmin.Password == "" {
+		cfg.Auth.DefaultAdmin.Password = "admin123"
+	}
+	if cfg.Auth.DefaultAdmin.Email == "" {
+		cfg.Auth.DefaultAdmin.Email = "admin@localhost"
+	}
+
+	// 下载配置
+	if cfg.Download.Concurrent == 0 {
+		cfg.Download.Concurrent = 10
+	}
+	if cfg.Download.MaxRetries == 0 {
+		cfg.Download.MaxRetries = 3
+	}
+	if cfg.Download.Timeout == 0 {
+		cfg.Download.Timeout = 3600
+	}
+	if cfg.Download.MaxSize == 0 {
+		cfg.Download.MaxSize = 10737418240 // 10GB
+	}
+	if cfg.Download.TempDir == "" {
+		cfg.Download.TempDir = "./temp"
+	}
+	if cfg.Download.OutputDir == "" {
+		cfg.Download.OutputDir = "./downloads"
+	}
+
+	// 日志配置
+	if cfg.Log.Level == "" {
+		cfg.Log.Level = "info"
+	}
+	if cfg.Log.Dir == "" {
+		cfg.Log.Dir = "./logs"
+	}
+	if cfg.Log.MaxSize == 0 {
+		cfg.Log.MaxSize = 100
+	}
+	if cfg.Log.MaxAge == 0 {
+		cfg.Log.MaxAge = 7
+	}
+
+	// 安全配置
+	if cfg.Security.AllowedHosts == nil {
+		cfg.Security.AllowedHosts = []string{"localhost", "127.0.0.1"}
+	}
+	if cfg.Security.EnableRateLimit {
+		if cfg.Security.RateLimitRPS == 0 {
+			cfg.Security.RateLimitRPS = 100
+		}
+	}
+
+	// 告警配置
+	if cfg.Alert.CheckInterval == 0 {
+		cfg.Alert.CheckInterval = 5
+	}
+	if cfg.Alert.DiskThreshold == 0 {
+		cfg.Alert.DiskThreshold = 90
+	}
 }
 
-// expandEnvVars 展开配置中的环境变量
-// 支持以下语法:
-//   - ${VAR}        - 环境变量替换
-//   - $VAR          - 环境变量替换（仅匹配独立的变量名）
-//   - ${VAR:-default} - 带默认值的环境变量替换
-func expandEnvVars(s string) string {
-	// 先处理 ${VAR:-default} 格式
-	reWithDefault := regexp.MustCompile(`\$\{(\w+):-([^}]*)\}`)
-	s = reWithDefault.ReplaceAllStringFunc(s, func(match string) string {
-		matches := reWithDefault.FindStringSubmatch(match)
-		if len(matches) == 3 {
-			varName := matches[1]
-			defaultVal := matches[2]
-			if val := os.Getenv(varName); val != "" {
-				return val
-			}
-			return defaultVal
-		}
-		return match
-	})
+// EnsureConfigFile 确保配置文件存在
+func EnsureConfigFile() error {
+	configPath := "config.yaml"
 
-	// 处理 ${VAR} 格式
-	reBraced := regexp.MustCompile(`\$\{(\w+)\}`)
-	s = reBraced.ReplaceAllStringFunc(s, func(match string) string {
-		matches := reBraced.FindStringSubmatch(match)
-		if len(matches) == 2 {
-			varName := matches[1]
-			if val := os.Getenv(varName); val != "" {
-				return val
+	// 检查配置文件是否存在
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		// 复制示例配置
+		examplePath := "config.yaml.example"
+		if _, err := os.Stat(examplePath); err == nil {
+			content, err := os.ReadFile(examplePath)
+			if err != nil {
+				return fmt.Errorf("failed to read example config: %w", err)
+			}
+			if err := os.WriteFile(configPath, content, 0644); err != nil {
+				return fmt.Errorf("failed to create config file: %w", err)
 			}
 		}
-		return match
-	})
+	}
 
-	// 处理 $VAR 格式（匹配 $ 后跟字母数字下划线）
-	// 简化正则：只匹配变量名，边界处理在替换函数中完成
-	rePlain := regexp.MustCompile(`\$(\w+)`)
-	s = rePlain.ReplaceAllStringFunc(s, func(match string) string {
-		matches := rePlain.FindStringSubmatch(match)
-		if len(matches) == 2 {
-			varName := matches[1]
-			if val := os.Getenv(varName); val != "" {
-				return val
-			}
-		}
-		return match
-	})
-
-	return s
+	return nil
 }
 
-// checkFilePermissions 检查配置文件权限是否安全
-func checkFilePermissions(path string) error {
-	info, err := os.Stat(path)
+// GetConfigPath 获取配置文件路径
+func GetConfigPath() string {
+	configPath := "config.yaml"
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		examplePath := "config.yaml.example"
+		if _, err := os.Stat(examplePath); err == nil {
+			return examplePath
+		}
+	}
+	return configPath
+}
+
+// GetDataDir 获取数据目录
+func GetDataDir() string {
+	cfg, err := Load()
 	if err != nil {
-		return err
+		return "./data"
 	}
-
-	// Windows 平台不支持 Unix 权限位检查
-	// 在 Windows 上，文件安全性由 ACL 控制，这里只记录警告
-	// 实际生产环境建议在 Windows 上使用 ACL 检查工具
-	if isWindows() {
-		// Windows 平台：检查文件是否为只读（简单检查）
-		// 注意：这只是基本检查，Windows 的完整安全检查需要 ACL API
-		if info.Mode()&0200 == 0 {
-			// 文件是只读的，相对安全
-			return nil
-		}
-		// 文件可写，在 Windows 上这是正常的，记录日志但不报错
-		// 生产环境应考虑使用 Windows ACL API 进行更严格的检查
-		return nil
-	}
-
-	// Unix/Linux 平台：检查文件权限（不应被其他用户可写）
-	mode := info.Mode()
-	if mode&0077 != 0 {
-		return fmt.Errorf("config file %s has insecure permissions: %v", path, mode)
-	}
-
-	return nil
-}
-
-// isWindows 检测当前操作系统是否为 Windows
-func isWindows() bool {
-	return os.PathSeparator == '\\' && os.PathListSeparator == ';'
-}
-
-// Validate 验证配置有效性
-func (c *Config) Validate() error {
-	// 验证服务器配置
-	if c.Server.Port < 1 || c.Server.Port > 65535 {
-		return fmt.Errorf("invalid server port: %d", c.Server.Port)
-	}
-
-	// 验证数据库配置
-	if c.Database.Path == "" {
-		return fmt.Errorf("database path cannot be empty")
-	}
-
-	// 验证认证配置
-	if c.Auth.JWTSecret == "change-me-in-production" {
-		// 生产环境警告
-		fmt.Println("WARNING: Using default JWT secret, please change in production!")
-	}
-
-	// 验证下载配置
-	if c.Download.Concurrent < 1 || c.Download.Concurrent > 100 {
-		return fmt.Errorf("invalid concurrent count: %d", c.Download.Concurrent)
-	}
-
-	// 验证日志级别
-	validLevels := map[string]bool{
-		"debug": true,
-		"info":  true,
-		"warn":  true,
-		"error": true,
-	}
-	if !validLevels[strings.ToLower(c.Log.Level)] {
-		return fmt.Errorf("invalid log level: %s", c.Log.Level)
-	}
-
-	return nil
-}
-
-// GetDSN 返回数据库连接字符串
-func (c *Config) GetDSN() string {
-	return c.Database.Path
-}
-
-// GetAddress 返回服务器监听地址
-func (c *Config) GetAddress() string {
-	return c.Server.Host + ":" + strconv.Itoa(c.Server.Port)
+	return filepath.Dir(cfg.Database.Path)
 }

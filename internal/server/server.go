@@ -411,6 +411,9 @@ func (s *Server) registerRoutes() {
 	// 需要认证的路由中间件
 	authMiddleware := handler.AuthMiddleware(s.jwtMgr)
 
+	// 用户信息路由
+	s.mux.Handle("/api/v1/user/me", authMiddleware(http.HandlerFunc(authHandler.GetCurrentUser)))
+
 	// 任务列表路由（使用 HandleFunc 避免自动重定向）
 	s.mux.HandleFunc("/api/v1/tasks", func(w http.ResponseWriter, r *http.Request) {
 		// 只处理 GET 请求

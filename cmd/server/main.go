@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/campus/collector/internal/auth"
 	"github.com/campus/collector/internal/config"
 	"github.com/campus/collector/internal/database"
 	"github.com/campus/collector/internal/engine"
@@ -43,6 +44,17 @@ func main() {
 
 	// 获取数据库连接
 	db := database.Get()
+
+	// 初始化默认管理员账号
+	log.Println("Initializing default admin user...")
+	adminCfg := cfg.Auth.DefaultAdmin
+	if adminCfg.Enabled {
+		if err := auth.InitDefaultAdmin(db, adminCfg.Username, adminCfg.Password, adminCfg.Email); err != nil {
+			log.Printf("警告：创建默认管理员账号失败：%v", err)
+		}
+	} else {
+		log.Println("默认管理员账号功能已禁用")
+	}
 
 	// 创建任务调度器
 	schedulerConfig := engine.DefaultSchedulerConfig()
