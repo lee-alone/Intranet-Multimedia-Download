@@ -134,8 +134,9 @@ router.beforeEach((to, _from, next) => {
     return
   }
 
-  // 已登录用户访问登录页，重定向到首页
-  if (meta.requiresGuest && isAuthenticated) {
+  // 已登录用户访问登录页或注册页，重定向到首页
+  // 注意：只在确实有 token 时才重定向，避免循环
+  if ((to.name === 'Login' || to.name === 'Register') && isAuthenticated) {
     next({ name: 'Dashboard', replace: true })
     return
   }
@@ -149,7 +150,7 @@ router.beforeEach((to, _from, next) => {
      return
    }
  }
- 
+
  next()
 })
 

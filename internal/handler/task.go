@@ -29,16 +29,32 @@ type TaskHandler struct {
 	jwtMgr       *auth.JWTManager
 	whitelistMgr *middleware.WhitelistManager
 	auditLogger  *audit.Logger
+	outputDir    string
+	tempDir      string
 }
 
 // NewTaskHandler 创建任务处理器
 func NewTaskHandler(db *sql.DB, scheduler *engine.TaskScheduler, jwtMgr *auth.JWTManager, whitelistMgr *middleware.WhitelistManager, auditLogger *audit.Logger) *TaskHandler {
+	// 获取下载目录和临时目录（相对于程序运行目录）
+	execDir, err := os.Getwd()
+	if err != nil {
+		execDir = "."
+	}
+	outputDir := filepath.Join(execDir, "downloads")
+	tempDir := filepath.Join(execDir, "temp")
+
+	// 确保目录存在
+	os.MkdirAll(outputDir, 0755)
+	os.MkdirAll(tempDir, 0755)
+
 	return &TaskHandler{
 		db:           db,
 		scheduler:    scheduler,
 		jwtMgr:       jwtMgr,
 		whitelistMgr: whitelistMgr,
 		auditLogger:  auditLogger,
+		outputDir:    outputDir,
+		tempDir:      tempDir,
 	}
 }
 
@@ -114,6 +130,122 @@ type TaskCancelResponse struct {
 
 // URL 验证正则表达式
 var urlRegex = regexp.MustCompile(`^https?://[^\s]+$`)
+
+// CreateTask 创建单个任务
+// POST /api/v1/tasks
+func (h *TaskHandler) CreateTask(w http.ResponseWriter, r *http.Request) {
+	// 获取用户信息
+	claims, ok := GetClaimsFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "未授权访问")
+		return
+	}
+
+	// 解析请求
+	var req struct {
+		URL      string `json:"url"`
+		Quality  string `json:"quality,omitempty"`
+		Priority int    `json:"priority,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "无效的请求体")
+		return
+	}
+
+	// 验证 URL
+	if req.URL == "" {
+		writeError(w, http.StatusBadRequest, "URL 不能为空")
+		return
+	}
+
+	if !urlRegex.MatchString(req.URL) {
+		writeError(w, http.StatusBadRequest, "无效的 URL 格式")
+		return
+	}
+
+	// 域名白名单校验
+	if err := middleware.ValidateURL(h.whitelistMgr, req.URL); err != nil {
+		if vErr, ok := err.(*middleware.URLValidationError); ok {
+			middleware.WriteURLValidationError(w, vErr)
+			return
+		}
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	// 设置默认值
+	quality := req.Quality
+	if quality == "" {
+		quality = "best"
+	}
+
+	priority := engine.TaskPriority(req.Priority)
+	if priority < engine.PriorityLow || priority > engine.PriorityUrgent {
+		priority = engine.PriorityNormal
+	}
+
+	// 生成任务 ID
+	taskID := uuid.New().String()
+
+	// 创建任务对象
+	task := &engine.Task{
+		ID:       taskID,
+		URL:      req.URL,
+		Priority: priority,
+		Status:   engine.TaskStatusQueued,
+		Options: engine.DownloadOptions{
+			Quality:   quality,
+			OutputDir: h.outputDir,
+			Timeout:   time.Duration(3600) * time.Second, // 默认 1 小时超时
+		},
+		CreatedAt: time.Now(),
+	}
+
+	// 保存到数据库
+	nowStr := time.Now().Format("2006-01-02 15:04:05")
+	_, err := h.db.Exec(`
+		INSERT INTO tasks (id, user_id, url, status, quality, engine, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+		`, taskID, int64(claims.UserID), req.URL, string(engine.TaskStatusQueued), quality, "", nowStr)
+	if err != nil {
+		log.Printf("Failed to insert task %s: %v", taskID, err)
+		writeError(w, http.StatusInternalServerError, "数据库操作失败")
+		return
+	}
+
+	// 将任务加入调度器
+	if err := h.scheduler.AddTask(task); err != nil {
+		log.Printf("Failed to add task %s to scheduler: %v", taskID, err)
+		writeError(w, http.StatusInternalServerError, "添加任务失败")
+		return
+	}
+
+	// 记录审计日志
+	{
+		userIDVal := int64(claims.UserID)
+		h.auditLogger.Log(&audit.AuditLog{
+			UserID:    &userIDVal,
+			Action:    audit.ActionCreateTask,
+			IPAddress: r.RemoteAddr,
+			UserAgent: r.UserAgent(),
+			Detail: map[string]interface{}{
+				"url":    req.URL,
+				"status": "success",
+			},
+			CreatedAt: time.Now(),
+		})
+	}
+
+	writeJSON(w, http.StatusCreated, map[string]interface{}{
+		"success": true,
+		"message": "任务创建成功",
+		"data": map[string]interface{}{
+			"id":     taskID,
+			"url":    req.URL,
+			"status": string(engine.TaskStatusQueued),
+		},
+	})
+}
 
 // CreateBatchTask 创建批量任务
 // POST /api/v1/tasks/batch
@@ -219,7 +351,9 @@ func (h *TaskHandler) CreateBatchTask(w http.ResponseWriter, r *http.Request) {
 			Priority: priority,
 			Status:   engine.TaskStatusQueued,
 			Options: engine.DownloadOptions{
-				Quality: quality,
+				Quality:   quality,
+				OutputDir: h.outputDir,
+				Timeout:   time.Duration(3600) * time.Second,
 			},
 			BatchID:   batchID,
 			CreatedAt: time.Now(),
@@ -424,11 +558,11 @@ func (h *TaskHandler) GetTaskStats(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"success": true,
 		"data": map[string]int{
-			"totalTasks":        totalTasks,
-			"completedTasks":    completedTasks,
-			"pendingTasks":      pendingTasks,
-			"failedTasks":       failedTasks,
-			"downloadingTasks":  downloadingTasks,
+			"totalTasks":       totalTasks,
+			"completedTasks":   completedTasks,
+			"pendingTasks":     pendingTasks,
+			"failedTasks":      failedTasks,
+			"downloadingTasks": downloadingTasks,
 		},
 	})
 }
@@ -698,6 +832,239 @@ func (h *TaskHandler) CancelTask(w http.ResponseWriter, r *http.Request) {
 		Success: true,
 		Message: "任务已取消",
 	})
+}
+
+// DeleteTask 删除任务（从数据库中删除已完成/失败/已取消的任务记录）
+// DELETE /api/v1/tasks/{id}/delete
+func (h *TaskHandler) DeleteTask(w http.ResponseWriter, r *http.Request) {
+	// 获取用户信息
+	claims, ok := GetClaimsFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "未授权访问")
+		return
+	}
+
+	// 从 URL 路径中提取 task_id
+	taskID, err := h.extractIDFromPath(r.URL.Path, 3)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "无效的请求路径或 ID")
+		return
+	}
+
+	if taskID == "" {
+		writeError(w, http.StatusBadRequest, "任务 ID 不能为空")
+		return
+	}
+
+	// 查询任务信息
+	var userID int64
+	var status string
+	var filePath sql.NullString
+
+	err = h.db.QueryRow(`
+	SELECT user_id, status, file_path FROM tasks WHERE id = ?
+	`, taskID).Scan(&userID, &status, &filePath)
+	if err == sql.ErrNoRows {
+		writeError(w, http.StatusNotFound, "任务不存在")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "查询任务失败")
+		return
+	}
+
+	// 验证用户权限
+	if int(userID) != claims.UserID && claims.Role != "admin" {
+		writeError(w, http.StatusForbidden, "无权删除此任务")
+		return
+	}
+
+	// 检查任务状态 - 只有已完成/失败/已取消的任务才能删除
+	taskStatus := engine.TaskStatus(status)
+	if !taskStatus.IsTerminal() {
+		writeError(w, http.StatusBadRequest, "只能删除已完成/失败/已取消的任务")
+		return
+	}
+
+	// 清理相关文件
+	if filePath.Valid && filePath.String != "" {
+		if err := cleanupTempFiles(filePath.String); err != nil {
+			fmt.Printf("清理文件失败：%v\n", err)
+		}
+	}
+
+	// 从数据库中删除任务记录
+	_, err = h.db.Exec(`DELETE FROM tasks WHERE id = ?`, taskID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "删除任务失败")
+		return
+	}
+
+	// 如果是批量任务的一部分，更新批量任务计数
+	var batchID sql.NullString
+	err = h.db.QueryRow(`SELECT batch_id FROM tasks WHERE id = ?`, taskID).Scan(&batchID)
+	if err == nil && batchID.Valid && batchID.String != "" {
+		// 更新批量任务的计数（删除时减少总数）
+		_, _ = h.db.Exec(`
+		UPDATE batch_tasks
+		SET total_count = total_count - 1
+		WHERE id = ?
+		`, batchID.String)
+	}
+
+	// 记录审计日志
+	userIDVal := int64(claims.UserID)
+	h.auditLogger.Log(&audit.AuditLog{
+		UserID:    &userIDVal,
+		Action:    audit.ActionDeleteTask,
+		IPAddress: r.RemoteAddr,
+		UserAgent: r.UserAgent(),
+		Detail: map[string]interface{}{
+			"task_id": taskID,
+			"status":  "success",
+		},
+		CreatedAt: time.Now(),
+	})
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"message": "任务已删除",
+	})
+}
+
+// CancelOrDeleteTask 根据任务状态自动判断是取消还是删除任务
+// DELETE /api/v1/tasks/{id}
+// - 如果任务是进行中的 (queued/downloading/merging)，则取消任务
+// - 如果任务是终态的 (completed/failed/cancelled)，则删除任务
+func (h *TaskHandler) CancelOrDeleteTask(w http.ResponseWriter, r *http.Request) {
+	// 获取用户信息
+	claims, ok := GetClaimsFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "未授权访问")
+		return
+	}
+
+	// 从 URL 路径中提取 task_id
+	taskID, err := h.extractIDFromPath(r.URL.Path, 3)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "无效的请求路径或 ID")
+		return
+	}
+
+	if taskID == "" {
+		writeError(w, http.StatusBadRequest, "任务 ID 不能为空")
+		return
+	}
+
+	// 查询任务信息
+	var userID int64
+	var status string
+	var filePath sql.NullString
+
+	err = h.db.QueryRow(`
+	SELECT user_id, status, file_path FROM tasks WHERE id = ?
+	`, taskID).Scan(&userID, &status, &filePath)
+	if err == sql.ErrNoRows {
+		writeError(w, http.StatusNotFound, "任务不存在")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "查询任务失败")
+		return
+	}
+
+	// 验证用户权限
+	if int(userID) != claims.UserID && claims.Role != "admin" {
+		writeError(w, http.StatusForbidden, "无权操作此任务")
+		return
+	}
+
+	// 根据任务状态决定是取消还是删除
+	taskStatus := engine.TaskStatus(status)
+	if taskStatus.IsTerminal() {
+		// 终态任务：删除
+		// 清理相关文件
+		if filePath.Valid && filePath.String != "" {
+			if err := cleanupTempFiles(filePath.String); err != nil {
+				fmt.Printf("清理文件失败：%v\n", err)
+			}
+		}
+
+		// 从数据库中删除任务记录
+		_, err = h.db.Exec(`DELETE FROM tasks WHERE id = ?`, taskID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "删除任务失败")
+			return
+		}
+
+		// 如果是批量任务的一部分，更新批量任务计数
+		var batchID sql.NullString
+		err = h.db.QueryRow(`SELECT batch_id FROM tasks WHERE id = ?`, taskID).Scan(&batchID)
+		if err == nil && batchID.Valid && batchID.String != "" {
+			_, _ = h.db.Exec(`
+			UPDATE batch_tasks
+			SET total_count = total_count - 1
+			WHERE id = ?
+			`, batchID.String)
+		}
+
+		// 记录审计日志
+		userIDVal := int64(claims.UserID)
+		h.auditLogger.Log(&audit.AuditLog{
+			UserID:    &userIDVal,
+			Action:    audit.ActionDeleteTask,
+			IPAddress: r.RemoteAddr,
+			UserAgent: r.UserAgent(),
+			Detail: map[string]interface{}{
+				"task_id": taskID,
+				"status":  "success",
+			},
+			CreatedAt: time.Now(),
+		})
+
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"success": true,
+			"message": "任务已删除",
+		})
+	} else {
+		// 非终态任务：取消
+		// 从调度器取消任务
+		if err := h.scheduler.CancelTask(taskID); err != nil {
+			writeError(w, http.StatusInternalServerError, fmt.Sprintf("取消任务失败：%v", err))
+			return
+		}
+
+		// 清理临时文件
+		if filePath.Valid && filePath.String != "" {
+			if err := cleanupTempFiles(filePath.String); err != nil {
+				fmt.Printf("清理临时文件失败：%v\n", err)
+			}
+		}
+
+		// 更新数据库状态
+		_, err = h.db.Exec(`
+		UPDATE tasks SET status = ?, completed_at = ? WHERE id = ?
+		`, string(engine.TaskStatusCancelled), time.Now(), taskID)
+		if err != nil {
+			fmt.Printf("更新任务状态失败：%v\n", err)
+		}
+
+		// 如果是批量任务的一部分，更新批量任务计数
+		var batchID sql.NullString
+		err = h.db.QueryRow(`SELECT batch_id FROM tasks WHERE id = ?`, taskID).Scan(&batchID)
+		if err == nil && batchID.Valid && batchID.String != "" {
+			_, _ = h.db.Exec(`
+			UPDATE batch_tasks
+			SET completed_count = completed_count + 1
+			WHERE id = ?
+			`, batchID.String)
+		}
+
+		writeJSON(w, http.StatusOK, TaskCancelResponse{
+			Success: true,
+			Message: "任务已取消",
+		})
+	}
 }
 
 // extractIDFromPath 从 URL 路径中提取指定位置的 ID

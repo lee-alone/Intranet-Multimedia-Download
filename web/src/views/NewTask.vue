@@ -48,12 +48,20 @@ function parseBatchUrls(): string[] {
     .filter(u => u.length > 0)
 }
 
+// 优先级映射（字符串→整数）
+const priorityMap: Record<string, number> = {
+  low: 0,
+  normal: 1,
+  high: 2,
+  urgent: 3,
+}
+
 // 提交单个任务
 async function submitSingleTask(): Promise<ApiResponse<CreateTaskResult>> {
   return await post<CreateTaskResult>('/tasks', {
     url: url.value,
     quality: quality.value,
-    priority: priority.value,
+    priority: priorityMap[priority.value] || 1,
   })
 }
 
@@ -63,7 +71,7 @@ async function submitBatchTask(): Promise<ApiResponse<BatchTaskResult>> {
   return await post<BatchTaskResult>('/tasks/batch', {
     urls: urls,
     quality: quality.value,
-    priority: priority.value,
+    priority: priorityMap[priority.value] || 1,
   })
 }
 
@@ -104,13 +112,14 @@ async function handleSubmit() {
     }
 
     // 调用 API
-    const response = isBatch.value 
+    const response = isBatch.value
       ? await submitBatchTask()
       : await submitSingleTask()
 
-    if (response.code === 0) {
-      success.value = isBatch.value 
-        ? `成功创建 ${parseBatchUrls().length} 个任务` 
+    // 兼容 code=0 或 success=true 两种格式
+    if (response.code === 0 || response.success === true) {
+      success.value = isBatch.value
+        ? `成功创建 ${parseBatchUrls().length} 个任务`
         : '任务创建成功'
       
       // 延迟跳转到任务列表
@@ -148,6 +157,7 @@ const priorityOptions = [
   { value: 'low', label: '低' },
   { value: 'normal', label: '普通' },
   { value: 'high', label: '高' },
+  { value: 'urgent', label: '紧急' },
 ]
 </script>
 

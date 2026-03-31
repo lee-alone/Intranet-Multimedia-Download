@@ -9,7 +9,6 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
-	"net/url"
 	"os/exec"
 	"strings"
 	"sync"
@@ -203,6 +202,9 @@ func New(cfg *config.Config, db *sql.DB, scheduler *engine.TaskScheduler) (*Serv
 
 // Start 启动服务器
 func (s *Server) Start() error {
+	// 设置调度器回调（必须在启动前设置）
+	s.setupSchedulerCallbacks()
+
 	// 注册路由
 	s.registerRoutes()
 
@@ -258,9 +260,9 @@ func (s *Server) setupSchedulerCallbacks() {
 				completed_at = ?,
 				updated_at = CURRENT_TIMESTAMP
 			WHERE id = ?
-		`, string(task.Status), task.Progress.Percent, task.FilePath, task.Progress.Total, 
-		   formatError(task.Error), task.StartedAt, task.CompletedAt, task.ID)
-		
+		`, string(task.Status), task.Progress.Percent, task.FilePath, task.Progress.Total,
+			formatError(task.Error), task.StartedAt, task.CompletedAt, task.ID)
+
 		if err != nil {
 			log.Printf("Failed to sync task %s status to DB: %v", task.ID, err)
 		}
@@ -278,7 +280,7 @@ func (s *Server) setupSchedulerCallbacks() {
 	s.scheduler.SetOnProgressUpdate(func(task *engine.Task) {
 		// 进度更新频率较高，一般只发送 WebSocket 通知，不频繁更新数据库
 		// 但每隔一定百分比（如 5%）或一定时间可以同步一次数据库
-		
+
 		// 仅发送 WebSocket 通知
 		handler.NotifyTaskUpdate(task)
 	})
@@ -305,7 +307,7 @@ func (s *Server) updateBatchProgress(batchID string) {
 			updated_at = CURRENT_TIMESTAMP
 		WHERE id = ?
 	`, batchID, batchID, batchID, batchID)
-	
+
 	if err != nil {
 		log.Printf("Failed to update batch progress for %s: %v", batchID, err)
 	}
@@ -414,15 +416,19 @@ func (s *Server) registerRoutes() {
 	// 用户信息路由
 	s.mux.Handle("/api/v1/user/me", authMiddleware(http.HandlerFunc(authHandler.GetCurrentUser)))
 
-	// 任务列表路由（使用 HandleFunc 避免自动重定向）
-	s.mux.HandleFunc("/api/v1/tasks", func(w http.ResponseWriter, r *http.Request) {
-		// 只处理 GET 请求
-		if r.Method != http.MethodGet {
-			http.NotFound(w, r)
-			return
+	// 任务创建和列表路由
+	s.mux.Handle("/api/v1/tasks", authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPost:
+			// POST: 创建单个任务
+			taskHandler.CreateTask(w, r)
+		case http.MethodGet:
+			// GET: 获取任务列表
+			taskHandler.GetTasks(w, r)
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
-		authMiddleware(http.HandlerFunc(taskHandler.GetTasks)).ServeHTTP(w, r)
-	})
+	})))
 
 	// 任务统计路由
 	s.mux.Handle("/api/v1/tasks/stats", authMiddleware(http.HandlerFunc(taskHandler.GetTaskStats)))
@@ -470,7 +476,7 @@ func (s *Server) registerRoutes() {
 		http.NotFound(w, r)
 	})))
 
-	// 单任务取消/下载路由
+	// 单任务取消/删除/下载路由
 	s.mux.Handle("/api/v1/tasks/", authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// 检查是否是单任务操作
 		path := r.URL.Path
@@ -478,7 +484,10 @@ func (s *Server) registerRoutes() {
 		// 路径格式：/api/v1/tasks/{id}
 		if len(parts) == 5 && parts[4] != "" {
 			if r.Method == http.MethodDelete {
-				taskHandler.CancelTask(w, r)
+				// DELETE 请求：根据任务状态自动判断是取消还是删除
+				// 为了保持向后兼容，统一使用 CancelTask 处理
+				// 前端应该根据任务状态调用不同的 API
+				taskHandler.CancelOrDeleteTask(w, r)
 				return
 			}
 			// 路径格式：/api/v1/tasks/{id}/download
@@ -707,23 +716,28 @@ func (s *Server) registerStaticFiles() {
 				return
 			}
 
-			// 处理 SPA 路由 - 所有非文件请求都返回 index.html
-			path := r.URL.Path
-			if path != "/" {
-				// 检查文件是否存在
-				cleanPath := strings.TrimPrefix(path, "/")
-				if _, err := fs.Stat(webFS, cleanPath); err != nil {
-					// 文件不存在，返回 index.html（SPA 路由）
-					path = "/index.html"
-				}
+			// 如果是根路径，直接交给 fileServer 处理 (它会自动服务 index.html)
+			if r.URL.Path == "/" || r.URL.Path == "" {
+				fileServer.ServeHTTP(w, r)
+				return
 			}
 
-			// 重写到文件系统中的实际路径
-			r2 := r.WithContext(r.Context())
-			r2.URL = &url.URL{}
-			*r2.URL = *r.URL
-			r2.URL.Path = strings.TrimPrefix(path, "/")
-			fileServer.ServeHTTP(w, r2)
+			// 获取去掉了开头斜杠的路径，用于 fs.Stat 检查文件是否存在
+			path := strings.TrimPrefix(r.URL.Path, "/")
+			
+			// 检查文件是否存在
+			if _, err := fs.Stat(webFS, path); err != nil {
+				// 文件不存在，很可能是 SPA (单页应用) 路由
+				// 此时应当返回 index.html 的内容，但保持当前的浏览地址不变
+				// 我们通过克隆请求并将路径改为 "/" 来实现，这样 fileServer 内部会服务 index.html 且不会触发重定向
+				r2 := r.Clone(r.Context())
+				r2.URL.Path = "/"
+				fileServer.ServeHTTP(w, r2)
+				return
+			}
+			
+			// 文件存在，直接服务
+			fileServer.ServeHTTP(w, r)
 		})
 	}
 }

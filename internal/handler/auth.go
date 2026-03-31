@@ -206,9 +206,11 @@ func (h *AuthHandler) loginWithLocal(w http.ResponseWriter, r *http.Request, req
 	// 生成令牌
 	tokens, err := h.jwtMgr.GenerateToken(user.ID, user.Username, user.Role)
 	if err != nil {
+		log.Printf("Failed to generate token: %v", err)
 		writeError(w, http.StatusInternalServerError, "Failed to generate token")
 		return
 	}
+	log.Printf("Login successful for user %s, token prefix: %s...", user.Username, tokens.AccessToken[:20])
 
 	// 存储刷新令牌
 	refreshExpiry := time.Now().Add(time.Duration(h.jwtMgr.GetRefreshExpiry()) * time.Minute)
@@ -737,6 +739,7 @@ func AuthMiddleware(jwtMgr *auth.JWTManager) func(http.Handler) http.Handler {
 			authHeader := r.Header.Get("Authorization")
 			if authHeader != "" {
 				if len(authHeader) < 7 || authHeader[:7] != "Bearer " {
+					log.Printf("AuthMiddleware: Invalid authorization header format: %s", authHeader)
 					writeError(w, http.StatusUnauthorized, "Invalid authorization header format")
 					return
 				}
@@ -745,6 +748,7 @@ func AuthMiddleware(jwtMgr *auth.JWTManager) func(http.Handler) http.Handler {
 				// 降级：从 URL 参数读取（仅用于下载等特定场景）
 				tokenString = r.URL.Query().Get("token")
 				if tokenString == "" {
+					log.Printf("AuthMiddleware: Missing authorization token")
 					writeError(w, http.StatusUnauthorized, "Missing authorization token")
 					return
 				}
@@ -752,6 +756,7 @@ func AuthMiddleware(jwtMgr *auth.JWTManager) func(http.Handler) http.Handler {
 
 			claims, err := jwtMgr.ValidateToken(tokenString)
 			if err != nil {
+				log.Printf("AuthMiddleware: Token validation failed: %v", err)
 				writeError(w, http.StatusUnauthorized, "Invalid or expired token")
 				return
 			}

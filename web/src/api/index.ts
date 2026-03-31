@@ -71,14 +71,14 @@ api.interceptors.response.use(
 
       switch (status) {
       case 401:
-        // 未授权，清除 token 并跳转登录
+        // 未授权，清除所有 token
+        const oldToken = localStorage.getItem('token')
         localStorage.removeItem('token')
-        // 使用 toast 显示错误消息
-        const authErrorMsg = getErrorMessage(backendMessage || '未授权，请先登录')
-        if (window.toast) {
-          window.toast.error(authErrorMsg)
+        localStorage.removeItem('refreshToken')
+        // 只在有旧 token 且当前不在登录页时跳转
+        if (oldToken && !window.location.pathname.includes('/login') && !window.location.pathname.includes('/register')) {
+          window.location.href = '/login'
         }
-        window.location.href = '/login'
         break
       case 403:
         // 禁止访问

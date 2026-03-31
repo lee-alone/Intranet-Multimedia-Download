@@ -3,6 +3,7 @@ package config
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 
@@ -18,6 +19,7 @@ type Config struct {
 	Log      LogConfig      `yaml:"log"`
 	Security SecurityConfig `yaml:"security"`
 	Alert    AlertConfig    `yaml:"alert"`
+	execDir  string // 二进制文件所在目录
 }
 
 // ServerConfig 服务器配置
@@ -145,8 +147,65 @@ func (c *Config) GetAddress() string {
 	return fmt.Sprintf("%s:%d", c.Server.Host, c.Server.Port)
 }
 
+// convertPathsToAbsolute 将相对路径转换为绝对路径（相对于二进制文件目录）
+func (c *Config) convertPathsToAbsolute() {
+	if c.execDir == "" {
+		return
+	}
+
+	log.Printf("Config execDir: %s", c.execDir)
+
+	// 转换认证相关路径
+	if !filepath.IsAbs(c.Auth.PrivateKey) {
+		oldPath := c.Auth.PrivateKey
+		c.Auth.PrivateKey = filepath.Join(c.execDir, c.Auth.PrivateKey)
+		log.Printf("Converted private key path: %s -> %s", oldPath, c.Auth.PrivateKey)
+	}
+	if !filepath.IsAbs(c.Auth.PublicKey) {
+		oldPath := c.Auth.PublicKey
+		c.Auth.PublicKey = filepath.Join(c.execDir, c.Auth.PublicKey)
+		log.Printf("Converted public key path: %s -> %s", oldPath, c.Auth.PublicKey)
+	}
+
+	// 转换数据库路径
+	if !filepath.IsAbs(c.Database.Path) {
+		oldPath := c.Database.Path
+		c.Database.Path = filepath.Join(c.execDir, c.Database.Path)
+		log.Printf("Converted database path: %s -> %s", oldPath, c.Database.Path)
+	}
+
+	// 转换日志目录
+	if !filepath.IsAbs(c.Log.Dir) {
+		oldPath := c.Log.Dir
+		c.Log.Dir = filepath.Join(c.execDir, c.Log.Dir)
+		log.Printf("Converted log dir: %s -> %s", oldPath, c.Log.Dir)
+	}
+
+	// 转换下载相关路径
+	if !filepath.IsAbs(c.Download.TempDir) {
+		oldPath := c.Download.TempDir
+		c.Download.TempDir = filepath.Join(c.execDir, c.Download.TempDir)
+		log.Printf("Converted temp dir: %s -> %s", oldPath, c.Download.TempDir)
+	}
+	if !filepath.IsAbs(c.Download.OutputDir) {
+		oldPath := c.Download.OutputDir
+		c.Download.OutputDir = filepath.Join(c.execDir, c.Download.OutputDir)
+		log.Printf("Converted output dir: %s -> %s", oldPath, c.Download.OutputDir)
+	}
+}
+
 // Load 加载配置文件
 func Load() (*Config, error) {
+	// 获取二进制文件所在目录
+	execPath, err := os.Executable()
+	if err != nil {
+		execPath, err = os.Getwd()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get executable path: %w", err)
+		}
+	}
+	execDir := filepath.Dir(execPath)
+
 	configPath := "config.yaml"
 
 	// 检查配置文件是否存在
@@ -170,8 +229,14 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
 
+	// 保存执行目录
+	cfg.execDir = execDir
+
 	// 设置默认值
 	setDefaults(&cfg)
+
+	// 将相对路径转换为绝对路径（相对于二进制文件目录）
+	cfg.convertPathsToAbsolute()
 
 	return &cfg, nil
 }

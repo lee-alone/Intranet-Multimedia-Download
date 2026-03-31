@@ -4,7 +4,7 @@ import { get, del, createWebSocketUrl } from '@/api'
 
 // 任务类型
 interface Task {
-  id: number
+  id: string
   url: string
   status: 'queued' | 'downloading' | 'merging' | 'completed' | 'failed' | 'cancelled'
   progress: number
@@ -12,7 +12,7 @@ interface Task {
   createdAt: string
   updatedAt?: string
   message?: string
-  batchId?: number
+  batchId?: string
 }
 
 // 平滑进度数据
@@ -42,7 +42,7 @@ const pollInterval = ref(5000) // 轮询间隔（毫秒）
 let pollTimer: ReturnType<typeof setInterval> | null = null
 const reconnectAttempts = ref(0)
 const maxReconnectAttempts = 5
-const lastProgressCache = ref<Map<number, SmoothedProgress>>(new Map()) // 离线缓存
+const lastProgressCache = ref<Map<string, SmoothedProgress>>(new Map()) // 离线缓存
 const offlineMessages = ref<OfflineMessage[]>([]) // 离线期间的消息队列
 const isOffline = ref(false) // 是否处于离线状态
 const cacheCleanupInterval = ref<ReturnType<typeof setInterval> | null>(null) // 缓存清理定时器
@@ -133,20 +133,20 @@ function formatTime(dateStr: string): string {
 function cleanupFinishedTasks() {
   const now = Date.now()
   const cache = lastProgressCache.value
-  const completedTaskIds = new Set<number>()
-  
+  const completedTaskIds = new Set<string>()
+
   // 获取所有已完成的任务 ID
   tasks.value.forEach(task => {
     if (task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled') {
       completedTaskIds.add(task.id)
     }
   })
-  
+
   // 清理已完成任务的缓存
   completedTaskIds.forEach(id => {
     cache.delete(id)
   })
-  
+
   // 清理超过 5 分钟未更新的数据
   for (const [taskId, data] of cache.entries()) {
     if (data.lastUpdated && now - data.lastUpdated > 5 * 60 * 1000) {
@@ -156,7 +156,7 @@ function cleanupFinishedTasks() {
 }
 
 // 加权平滑算法 - 避免进度跳动
-function smoothProgress(taskId: number, newProgress: number): number {
+function smoothProgress(taskId: string, newProgress: number): number {
   const cache = lastProgressCache.value
   const defaultWeights = [0.4, 0.3, 0.2, 0.1] // 权重总和为 1
 
@@ -198,7 +198,7 @@ function smoothProgress(taskId: number, newProgress: number): number {
 }
 
 // 获取平滑后的进度
-function getSmoothedProgress(taskId: number, progress: number): number {
+function getSmoothedProgress(taskId: string, progress: number): number {
   const smoothed = smoothProgress(taskId, progress)
   return smoothed
 }
@@ -208,7 +208,7 @@ function processOfflineMessages() {
   if (offlineMessages.value.length === 0) return
 
   offlineMessages.value.forEach(msg => {
-    const taskId = Number(msg.task_id)
+    const taskId = msg.task_id
     const index = tasks.value.findIndex(t => t.id === taskId)
     if (index !== -1) {
       const smoothedProgress = getSmoothedProgress(
@@ -235,7 +235,8 @@ function processOfflineMessages() {
 async function fetchTasks() {
   try {
     const response = await get<Task[]>('/tasks')
-    if (response.code === 0 && response.data) {
+    // 兼容 code=0 或 success=true 两种格式
+    if ((response.code === 0 || response.success === true) && response.data) {
       tasks.value = response.data.map(task => ({
         ...task,
         progress: getSmoothedProgress(task.id, task.progress)
@@ -251,61 +252,64 @@ async function fetchTasks() {
     if (e.response?.status === 401) {
       error.value = '未授权，请重新登录'
     } else {
-      // 使用模拟数据用于演示
-      tasks.value = [
-        { id: 1, url: 'https://bilibili.com/video/BV1xxx', status: 'completed', progress: 100, priority: 'normal', createdAt: '2026-03-28T10:00:00Z' },
-        { id: 2, url: 'https://youtube.com/watch?v=xxx', status: 'downloading', progress: 65, priority: 'high', createdAt: '2026-03-28T11:00:00Z' },
-        { id: 3, url: 'https://youku.com/v_show/id_xxx', status: 'queued', progress: 0, priority: 'low', createdAt: '2026-03-28T12:00:00Z' },
-        { id: 4, url: 'https://iqiyi.com/v_xxx.html', status: 'failed', progress: 30, priority: 'normal', createdAt: '2026-03-28T09:00:00Z', message: '视频不可用' },
-      ]
+      // API 请求失败时显示空列表
+      tasks.value = []
     }
   } finally {
     loading.value = false
   }
 }
 
-// 取消任务
-async function cancelTask(taskId: number) {
-  if (!confirm('确定要取消这个任务吗？')) return
+// 取消/删除任务（后端会根据任务状态自动判断）
+async function cancelOrDeleteTask(taskId: string) {
+  if (!confirm('确定要操作这个任务吗？')) return
 
   try {
     const response = await del(`/tasks/${taskId}`)
     // 支持 code=0 或 success=true 两种格式
     if (response.code === 0 || response.success === true) {
-      const index = tasks.value.findIndex(t => t.id === taskId)
-      if (index !== -1) {
-        tasks.value[index] = { ...tasks.value[index], status: 'cancelled' }
-      }
+      // 从列表中移除
+      tasks.value = tasks.value.filter(t => t.id !== taskId)
     } else {
-      alert(response.message || response.error || '取消失败')
+      alert(response.message || response.error || '操作失败')
     }
   } catch (e: any) {
-    alert('取消任务失败，请稍后重试')
+    alert('操作任务失败，请稍后重试')
   }
 }
-    
+
+// 取消任务（调用取消/删除函数）
+async function cancelTask(taskId: string) {
+  await cancelOrDeleteTask(taskId)
+}
+
+// 删除任务（调用取消/删除函数）
+async function deleteTask(taskId: string) {
+  await cancelOrDeleteTask(taskId)
+}
+
     // 下载文件
-    async function downloadTask(taskId: number) {
+    async function downloadTask(taskId: string) {
       const token = localStorage.getItem('token')
-  
+
       try {
     		const response = await fetch(`/api/v1/tasks/${taskId}/download`, {
     			headers: {
     				'Authorization': `Bearer ${token}`
     			}
     		})
-    		
+
     		if (!response.ok) {
     			const error = await response.json().catch(() => ({ error: '下载失败' }))
     			throw new Error(error.error || `HTTP ${response.status}`)
     		}
-    		
+
     		// 获取文件名
     		const disposition = response.headers.get('Content-Disposition')
     		const filename = disposition
     			? disposition.split('filename=')[1]?.replace(/"/g, '')
     			: `【教学引用】${taskId}.mp4`
-    		
+
     		// 创建 Blob 并触发下载
     		const blob = await response.blob()
     		const url = window.URL.createObjectURL(blob)
@@ -320,26 +324,9 @@ async function cancelTask(taskId: number) {
     	  alert(e.message || '下载失败，请稍后重试')
     	}
     }
-    
-    // 删除任务
-async function deleteTask(taskId: number) {
-  if (!confirm('确定要删除这个任务吗？')) return
 
-  try {
-    const response = await del(`/tasks/${taskId}`)
-    // 支持 code=0 或 success=true 两种格式
-    if (response.code === 0 || response.success === true) {
-      tasks.value = tasks.value.filter(t => t.id !== taskId)
-    } else {
-      alert(response.message || response.error || '删除失败')
-    }
-  } catch (e: any) {
-    alert('删除任务失败，请稍后重试')
-  }
-}
-
-// 调整优先级（上移）
-function moveUp(taskId: number) {
+    // 调整优先级（上移）
+function moveUp(taskId: string) {
   const index = tasks.value.findIndex(t => t.id === taskId)
   if (index > 0) {
     const temp = tasks.value[index]
@@ -350,7 +337,7 @@ function moveUp(taskId: number) {
 }
 
 // 调整优先级（下移）
-function moveDown(taskId: number) {
+function moveDown(taskId: string) {
   const index = tasks.value.findIndex(t => t.id === taskId)
   if (index !== -1 && index < tasks.value.length - 1) {
     const temp = tasks.value[index]
@@ -424,9 +411,9 @@ function handleSSEMessage(data: any) {
 
   if (data.type === 'task_update' && data.task_id) {
     // 更新对应任务进度 - 使用字符串比较，因为后端 task_id 是 string
-    const taskId = Number(data.task_id)
+    const taskId = data.task_id
     const index = tasks.value.findIndex(t => t.id === taskId)
-    
+
     if (index !== -1) {
       const smoothedProgress = getSmoothedProgress(
         taskId,
@@ -441,7 +428,7 @@ function handleSSEMessage(data: any) {
     } else {
       // 如果任务不存在，缓存消息（离线补发）
       offlineMessages.value.push({
-        task_id: String(data.task_id),
+        task_id: data.task_id,
         status: data.status,
         progress: data.progress,
         timestamp: data.timestamp

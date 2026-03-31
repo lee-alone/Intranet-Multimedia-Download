@@ -207,6 +207,17 @@ func (e *YtdlpEngine) Download(ctx context.Context, url string, options Download
 					safeSendProgress(progressChan, *prog)
 					lastProgress = prog
 				}
+				// 解析文件路径 [download] Destination: /path/to/file
+				if strings.Contains(line, "[download] Destination:") {
+					filePath := strings.TrimSpace(strings.SplitN(line, "Destination:", 2)[1])
+					// 如果是相对路径，转换为绝对路径
+					if !filepath.IsAbs(filePath) && options.OutputDir != "" {
+						filePath = filepath.Join(options.OutputDir, filePath)
+					}
+					if lastProgress != nil {
+						lastProgress.FilePath = filePath
+					}
+				}
 			}
 		}()
 
@@ -220,14 +231,49 @@ func (e *YtdlpEngine) Download(ctx context.Context, url string, options Download
 					safeSendProgress(progressChan, *prog)
 					lastProgress = prog
 				}
+				// 解析文件路径 [download] Destination: /path/to/file
+				if strings.Contains(line, "[download] Destination:") {
+					filePath := strings.TrimSpace(strings.SplitN(line, "Destination:", 2)[1])
+					// 如果是相对路径，转换为绝对路径
+					if !filepath.IsAbs(filePath) && options.OutputDir != "" {
+						filePath = filepath.Join(options.OutputDir, filePath)
+					}
+					if lastProgress != nil {
+						lastProgress.FilePath = filePath
+					}
+				}
 			}
 		}()
 
 		// 等待命令完成
 		err = cmd.Wait()
 
-		// 发送最终进度
-		if lastProgress != nil && lastProgress.Percent > 0 {
+		// 发送最终进度（包含文件路径）
+		if lastProgress != nil {
+			if lastProgress.Percent >= 100 && lastProgress.FilePath == "" {
+				// 如果下载完成但没有文件路径，尝试从输出目录和标题构建
+				if options.OutputDir != "" {
+					// 使用 yt-dlp 获取实际文件名
+					cmd := exec.Command(e.execPath, "--simulate", "--print", "filename", url)
+					output, err := cmd.Output()
+					if err == nil {
+						filename := strings.TrimSpace(string(output))
+						if filename != "" {
+							lastProgress.FilePath = filepath.Join(options.OutputDir, filename)
+						}
+					}
+				}
+			}
+			// 确保文件路径是绝对路径
+			if lastProgress.FilePath != "" && !filepath.IsAbs(lastProgress.FilePath) {
+				if options.OutputDir != "" {
+					lastProgress.FilePath = filepath.Join(options.OutputDir, lastProgress.FilePath)
+				} else {
+					if absPath, err := filepath.Abs(lastProgress.FilePath); err == nil {
+						lastProgress.FilePath = absPath
+					}
+				}
+			}
 			safeSendProgress(progressChan, *lastProgress)
 		}
 

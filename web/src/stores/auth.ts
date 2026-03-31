@@ -107,7 +107,7 @@ export const useAuthStore = defineStore('auth', () => {
 
       // 检查响应：支持 code=0 或 success=true 两种格式
       const isSuccess = response.code === 0 || response.success === true
-      
+
       if (isSuccess && response.data) {
         const { access_token, refresh_token } = response.data
 
@@ -115,7 +115,15 @@ export const useAuthStore = defineStore('auth', () => {
         saveToken(access_token, refresh_token, false)
 
         // 获取用户信息
-        await fetchUserInfo()
+        try {
+          await fetchUserInfo()
+        } catch (e) {
+          // 获取用户信息失败，清除 token 并返回错误
+          console.error('Failed to fetch user info:', e)
+          clearAuth()
+          error.value = '登录成功但获取用户信息失败，请重试'
+          return false
+        }
         return true
       } else {
         error.value = response.message || response.error || '登录失败'

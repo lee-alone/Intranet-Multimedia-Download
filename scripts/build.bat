@@ -11,9 +11,14 @@ REM 设置变量
 set PROJECT_NAME=collector
 set OUTPUT_DIR=bin
 set RELEASE_DIR=release
-set MAIN_PATH=cmd\server\main.go
+set MAIN_PATH=cmd/server/main.go
 set BUILD_TIME=%DATE% %TIME%
 set VERSION=1.0.0
+
+REM 获取脚本所在目录的绝对路径 (scripts 目录)
+set SCRIPT_DIR=%~dp0
+REM 计算项目根目录 (去掉末尾的 'scripts\' 部分，保留末尾反斜杠)
+set PROJECT_ROOT=%SCRIPT_DIR:~0,-9%
 
 REM 检查 Go 环境
 echo [1/6] 检查 Go 环境...
@@ -51,46 +56,54 @@ if %errorlevel% neq 0 (
 
 REM 创建输出目录
 echo [4/6] 创建输出目录...
-if not exist "%OUTPUT_DIR%" (
-    mkdir "%OUTPUT_DIR%"
-    echo 已创建目录：%OUTPUT_DIR%
+if not exist "%PROJECT_ROOT%\%OUTPUT_DIR%" (
+  mkdir "%PROJECT_ROOT%\%OUTPUT_DIR%"
+  echo 已创建目录：%PROJECT_ROOT%\%OUTPUT_DIR%
 )
-if not exist "%RELEASE_DIR%" (
-    mkdir "%RELEASE_DIR%"
-    echo 已创建目录：%RELEASE_DIR%
+if not exist "%PROJECT_ROOT%\%RELEASE_DIR%" (
+  mkdir "%PROJECT_ROOT%\%RELEASE_DIR%"
+  echo 已创建目录：%PROJECT_ROOT%\%RELEASE_DIR%
 )
 
 REM 构建前端资源
 echo [5/6] 构建前端资源...
-cd web
+pushd "%PROJECT_ROOT%\web"
 if exist "node_modules" (
-    echo 检测到 node_modules，执行 npm build...
-    call npm run build
-    if %errorlevel% neq 0 (
-        echo [错误] 前端构建失败！
-        cd ..
-        pause
-        exit /b 1
-    )
+  echo 检测到 node_modules，执行 npm build...
+  call npm run build
+  if %errorlevel% neq 0 (
+    echo [错误] 前端构建失败！
+    popd
+    pause
+    exit /b 1
+  )
 ) else (
-    echo 未检测到 node_modules，先执行 npm install...
-    call npm install
-    if %errorlevel% neq 0 (
-        echo [错误] npm install 失败！
-        cd ..
-        pause
-        exit /b 1
-    )
-    call npm run build
-    if %errorlevel% neq 0 (
-        echo [错误] 前端构建失败！
-        cd ..
-        pause
-        exit /b 1
-    )
+  echo 未检测到 node_modules，先执行 npm install...
+  call npm install
+  if %errorlevel% neq 0 (
+    echo [错误] npm install 失败！
+    popd
+    pause
+    exit /b 1
+  )
+  call npm run build
+  if %errorlevel% neq 0 (
+    echo [错误] 前端构建失败！
+    popd
+    pause
+    exit /b 1
+  )
 )
-cd ..
+popd
 echo 前端构建完成
+
+REM 检查 web/dist 是否存在
+if not exist "%PROJECT_ROOT%\web\dist" (
+  echo [错误] 前端构建产物目录 web\dist 不存在！
+  echo 请检查前端构建是否成功
+  pause
+  exit /b 1
+)
 
 REM 编译项目
 echo [6/6] 开始编译 Windows 版本 (CGO 启用)...
@@ -107,7 +120,7 @@ echo GCC Path:
 where gcc
 echo 开始编译...
 
-go build -ldflags="-s -w -X 'main.buildTime=%BUILD_TIME%'" -o "%OUTPUT_DIR%\%PROJECT_NAME%.exe" "%MAIN_PATH%"
+go build -ldflags="-s -w -X 'main.buildTime=%BUILD_TIME%'" -o "%PROJECT_ROOT%\%OUTPUT_DIR%\%PROJECT_NAME%.exe" "%PROJECT_ROOT%\%MAIN_PATH%"
 
 if %errorlevel% neq 0 (
     echo [错误] 编译失败！
@@ -119,14 +132,14 @@ if %errorlevel% neq 0 (
 echo.
 echo ============================================
 echo [成功] 编译完成！
-echo 输出文件：%OUTPUT_DIR%\%PROJECT_NAME%.exe
+echo 输出文件：%PROJECT_ROOT%\%OUTPUT_DIR%\%PROJECT_NAME%.exe
 echo ============================================
 
 REM 打包发布文件
 echo.
 echo 开始打包发布文件...
 set RELEASE_NAME=%PROJECT_NAME%_%VERSION%_windows_amd64
-set RELEASE_PATH=%RELEASE_DIR%\%RELEASE_NAME%
+set RELEASE_PATH=%PROJECT_ROOT%\%RELEASE_DIR%\%RELEASE_NAME%
 
 if exist "%RELEASE_PATH%" (
     rmdir /s /q "%RELEASE_PATH%"
@@ -134,10 +147,16 @@ if exist "%RELEASE_PATH%" (
 mkdir "%RELEASE_PATH%"
 
 REM 复制必要文件
-copy "%OUTPUT_DIR%\%PROJECT_NAME%.exe" "%RELEASE_PATH%\"
-copy "config.yaml.example" "%RELEASE_PATH%\config.yaml"
-copy "README.md" "%RELEASE_PATH%\"
-xcopy /E /I /Y "migrations" "%RELEASE_PATH%\migrations"
+copy "%PROJECT_ROOT%\%OUTPUT_DIR%\%PROJECT_NAME%.exe" "%RELEASE_PATH%\"
+copy "%PROJECT_ROOT%\config.yaml.example" "%RELEASE_PATH%\config.yaml"
+copy "%PROJECT_ROOT%\README.md" "%RELEASE_PATH%\"
+xcopy /E /I /Y "%PROJECT_ROOT%\migrations" "%RELEASE_PATH%\migrations"
+
+REM 复制 runtime 目录（包含 yt-dlp 和 lux）
+if exist "%PROJECT_ROOT%\runtime" (
+  xcopy /E /I /Y "%PROJECT_ROOT%\runtime" "%RELEASE_PATH%\runtime"
+  echo 已复制 runtime 目录
+)
 
 REM 创建目录结构
 mkdir "%RELEASE_PATH%\data"
@@ -145,17 +164,17 @@ mkdir "%RELEASE_PATH%\logs"
 mkdir "%RELEASE_PATH%\keys"
 
 REM 复制密钥文件（如果存在）
-if exist "keys\private.pem" (
-    copy "keys\private.pem" "%RELEASE_PATH%\keys\"
-    echo 已复制私钥文件
+if exist "%PROJECT_ROOT%\keys\private.pem" (
+  copy "%PROJECT_ROOT%\keys\private.pem" "%RELEASE_PATH%\keys\"
+  echo 已复制私钥文件
 )
-if exist "keys\public.pem" (
-    copy "keys\public.pem" "%RELEASE_PATH%\keys\"
-    echo 已复制公钥文件
+if exist "%PROJECT_ROOT%\keys\public.pem" (
+  copy "%PROJECT_ROOT%\keys\public.pem" "%RELEASE_PATH%\keys\"
+  echo 已复制公钥文件
 )
 
 REM 复制密钥生成脚本
-copy "scripts\generate-keys.bat" "%RELEASE_PATH%\"
+copy "%PROJECT_ROOT%\scripts\generate-keys.bat" "%RELEASE_PATH%\"
 
 REM 创建.gitignore 文件
 (
@@ -195,17 +214,17 @@ echo.
 echo ## 首次运行步骤
 echo.
 echo 1. 生成 JWT 密钥对（仅首次运行需要）:
-echo    - Windows: 运行 generate-keys.bat
-echo    - Linux: 运行 ./generate-keys.sh
-echo    - 或手动执行：go run cmd/keygen/main.go
+echo - Windows: 运行 generate-keys.bat
+echo - Linux: 运行 ./generate-keys.sh
+echo - 或手动执行：go run cmd/keygen/main.go
 echo.
 echo 2. 配置应用程序:
-echo    - 复制 config.yaml.example 为 config.yaml
-echo    - 修改配置文件中的数据库路径、端口等设置
+echo - 复制 config.yaml.example 为 config.yaml
+echo - 修改配置文件中的数据库路径、端口等设置
 echo.
 echo 3. 运行程序:
-echo    - Windows: .\collector.exe
-echo    - Linux: ./collector
+echo - Windows: .\collector.exe
+echo - Linux: ./collector
 echo.
 echo ## 目录结构
 echo - bin/ - 编译后的可执行文件

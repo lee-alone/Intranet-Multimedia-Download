@@ -40,6 +40,7 @@ type DownloadProgress struct {
 	Speed      float64 // 下载速度 (bytes/s)
 	ETA        int     // 预计剩余时间 (秒)
 	Status     string  // 当前状态描述
+	FilePath   string  // 下载完成的文件路径
 }
 
 // DownloadResult 下载结果

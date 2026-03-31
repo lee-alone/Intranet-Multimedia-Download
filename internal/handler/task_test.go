@@ -613,6 +613,117 @@ func TestCancelTask_Unauthorized(t *testing.T) {
 	}
 }
 
+// TestCreateTask_Success 测试成功创建单个任务
+func TestCreateTask_Success(t *testing.T) {
+	setup := setupTaskTest(t)
+	defer setup.cleanup()
+
+	// 生成测试 token
+	token := generateTestToken(t, setup.jwtMgr, 1, "user")
+
+	// 准备请求体
+	reqBody := struct {
+		URL      string `json:"url"`
+		Quality  string `json:"quality,omitempty"`
+		Priority int    `json:"priority,omitempty"`
+	}{
+		URL:      "https://example.com/video1",
+		Quality:  "best",
+		Priority: 0,
+	}
+	body, _ := json.Marshal(reqBody)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	claims := &auth.Claims{UserID: 1, Username: "testuser", Role: "user"}
+	ctx := context.WithValue(req.Context(), ClaimsContextKey, claims)
+	req = req.WithContext(ctx)
+
+	w := httptest.NewRecorder()
+	setup.handler.CreateTask(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Errorf("预期状态码 %d, 实际 %d, 响应：%s", http.StatusCreated, w.Code, w.Body.String())
+	}
+
+	var resp map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &resp)
+
+	if resp["success"] != true {
+		t.Errorf("预期 success=true, 实际=%v", resp["success"])
+	}
+
+	if resp["message"] != "任务创建成功" {
+		t.Errorf("预期 message='任务创建成功', 实际='%s'", resp["message"])
+	}
+}
+
+// TestCreateTask_EmptyURL 测试空 URL
+func TestCreateTask_EmptyURL(t *testing.T) {
+	setup := setupTaskTest(t)
+	defer setup.cleanup()
+
+	token := generateTestToken(t, setup.jwtMgr, 1, "user")
+
+	reqBody := struct {
+		URL      string `json:"url"`
+		Quality  string `json:"quality,omitempty"`
+		Priority int    `json:"priority,omitempty"`
+	}{
+		URL: "",
+	}
+	body, _ := json.Marshal(reqBody)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	claims := &auth.Claims{UserID: 1, Username: "testuser", Role: "user"}
+	ctx := context.WithValue(req.Context(), ClaimsContextKey, claims)
+	req = req.WithContext(ctx)
+
+	w := httptest.NewRecorder()
+	setup.handler.CreateTask(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("预期状态码 %d, 实际 %d", http.StatusBadRequest, w.Code)
+	}
+}
+
+// TestCreateTask_InvalidURL 测试无效 URL
+func TestCreateTask_InvalidURL(t *testing.T) {
+	setup := setupTaskTest(t)
+	defer setup.cleanup()
+
+	token := generateTestToken(t, setup.jwtMgr, 1, "user")
+
+	reqBody := struct {
+		URL      string `json:"url"`
+		Quality  string `json:"quality,omitempty"`
+		Priority int    `json:"priority,omitempty"`
+	}{
+		URL: "not-a-valid-url",
+	}
+	body, _ := json.Marshal(reqBody)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	claims := &auth.Claims{UserID: 1, Username: "testuser", Role: "user"}
+	ctx := context.WithValue(req.Context(), ClaimsContextKey, claims)
+	req = req.WithContext(ctx)
+
+	w := httptest.NewRecorder()
+	setup.handler.CreateTask(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("预期状态码 %d, 实际 %d", http.StatusBadRequest, w.Code)
+	}
+}
+
 // TestCancelTask_AdminCanCancelAny 测试管理员可以取消任何任务
 // 注意：此测试因 MockEngine 立即完成任务而跳过
 // 实际的权限验证已在其他测试中验证

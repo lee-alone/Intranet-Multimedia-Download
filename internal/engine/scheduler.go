@@ -299,7 +299,8 @@ func (s *TaskScheduler) executeTask(task *Task) {
 		// 先转换到 Merging 状态，然后再转换到 Completed
 		task.TransitionStatus(TaskStatusMerging)
 		s.notifyTaskUpdate(task)
-		task.FilePath = lastProgress.Status
+		// 使用 DownloadProgress 中的 FilePath 字段
+		task.FilePath = lastProgress.FilePath
 		task.CompletedAt = time.Now()
 		task.TransitionStatus(TaskStatusCompleted)
 		s.notifyTaskUpdate(task)

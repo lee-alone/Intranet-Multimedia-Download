@@ -14,7 +14,7 @@ interface Stats {
 
 // 任务信息
 interface Task {
-  id: number
+  id: string
   url: string
   status: string
   progress: number
@@ -37,8 +37,9 @@ const ws = ref<WebSocket | null>(null)
 async function fetchStats() {
   try {
     const response = await get<Stats>('/tasks/stats')
-    if (response.code === 0 && response.data) {
-      stats.value = response.data
+    // 兼容 code=0 或 success=true 两种格式
+    if ((response.code === 0 || response.success === true) && response.data) {
+      stats.value = response.data as any
     }
   } catch (e: any) {
     console.error('获取统计数据失败:', e)
@@ -57,17 +58,19 @@ async function fetchStats() {
 async function fetchRecentTasks() {
   try {
     const response = await get<Task[]>('/tasks?limit=5')
-    if (response.code === 0 && response.data) {
+    // 兼容 code=0 或 success=true 两种格式
+    if ((response.code === 0 || response.success === true) && response.data) {
       recentTasks.value = response.data
+    } else if (Array.isArray(response)) {
+      // 如果响应直接是数组
+      recentTasks.value = response
+    } else {
+      recentTasks.value = []
     }
   } catch (e: any) {
     console.error('获取最近任务失败:', e)
-    // 使用模拟数据用于演示
-    recentTasks.value = [
-      { id: 1, url: 'https://bilibili.com/video/BV1xxx', status: 'completed', progress: 100 },
-      { id: 2, url: 'https://youtube.com/watch?v=xxx', status: 'downloading', progress: 65 },
-      { id: 3, url: 'https://youku.com/v_show/id_xxx', status: 'queued', progress: 0 },
-    ]
+    // 失败时显示空列表
+    recentTasks.value = []
   } finally {
     loading.value = false
   }
@@ -76,7 +79,8 @@ async function fetchRecentTasks() {
 // 连接 WebSocket 获取实时更新
 function connectWebSocket() {
   try {
-    const socket = createAuthenticatedWebSocket('/ws/dashboard')
+    // 使用 /api/v1/ws 进行 WebSocket 连接，订阅所有任务更新
+    const socket = createAuthenticatedWebSocket('/api/v1/ws')
     
     socket.onopen = () => {
       console.log('Dashboard WebSocket 连接成功')

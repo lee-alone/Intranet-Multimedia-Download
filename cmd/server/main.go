@@ -18,6 +18,14 @@ import (
 )
 
 func main() {
+	// 获取程序运行目录
+	execPath, err := os.Executable()
+	if err != nil {
+		log.Fatalf("Failed to get executable path: %v", err)
+	}
+	execDir := filepath.Dir(execPath)
+	log.Printf("Program running directory: %s", execDir)
+
 	// 加载配置
 	cfg, err := config.Load()
 	if err != nil {
@@ -56,22 +64,36 @@ func main() {
 		log.Println("默认管理员账号功能已禁用")
 	}
 
+	// 确保下载目录存在（相对于程序运行目录）
+	downloadDir := filepath.Join(execDir, "downloads")
+	if err := os.MkdirAll(downloadDir, 0755); err != nil {
+		log.Fatalf("Failed to create downloads directory: %v", err)
+	}
+	log.Printf("Downloads directory: %s", downloadDir)
+
+	// 确保临时目录存在
+	tempDir := filepath.Join(execDir, "temp")
+	if err := os.MkdirAll(tempDir, 0755); err != nil {
+		log.Fatalf("Failed to create temp directory: %v", err)
+	}
+	log.Printf("Temp directory: %s", tempDir)
+
 	// 创建任务调度器
 	schedulerConfig := engine.DefaultSchedulerConfig()
 	schedulerConfig.MaxConcurrent = cfg.Download.Concurrent
 	scheduler := engine.NewTaskScheduler(nil, schedulerConfig)
 
-	// 创建下载引擎
+	// 创建下载引擎（使用相对于程序运行目录的路径）
 	ytdlp := engine.NewYtdlpEngine(engine.YtdlpConfig{
-		ExecPath:   filepath.Join("runtime", "yt-dlp.exe"),
-		OutputDir:  cfg.Download.OutputDir,
+		ExecPath:   filepath.Join(execDir, "runtime", "yt-dlp.exe"),
+		OutputDir:  downloadDir,
 		Timeout:    time.Duration(cfg.Download.Timeout) * time.Second,
 		MaxRetries: 3,
 	})
 
 	lux := engine.NewLuxEngine(engine.LuxConfig{
-		ExecPath:  filepath.Join("runtime", "lux.exe"),
-		OutputDir: cfg.Download.OutputDir,
+		ExecPath:  filepath.Join(execDir, "runtime", "lux.exe"),
+		OutputDir: downloadDir,
 	})
 
 	// 创建故障转移引擎

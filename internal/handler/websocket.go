@@ -146,6 +146,21 @@ func (h *ProgressHub) broadcastMessage(msg WSMessage) {
 			}
 		}
 	}
+
+	// 发送到全局订阅的客户端（没有订阅特定任务/批量任务的客户端）
+	for client := range h.clients {
+		// 只发送给全局订阅的客户端（taskID 和 batchID 都为空）
+		if client.taskID == "" && client.batchID == "" {
+			select {
+			case client.send <- msg:
+			default:
+				// 客户端缓冲区已满，断开连接并记录日志
+				log.Printf("WebSocket client buffer full, disconnecting: user=%d (global)", client.userID)
+				close(client.send)
+				delete(h.clients, client)
+			}
+		}
+	}
 }
 
 // BroadcastToTask 向特定任务广播消息
@@ -172,24 +187,9 @@ func NewWebSocketHandler(db *sql.DB, jwtMgr *auth.JWTManager) *WebSocketHandler 
 			ReadBufferSize:  1024,
 			WriteBufferSize: 1024,
 			CheckOrigin: func(r *http.Request) bool {
-				// 限制来源（生产环境）
-				origin := r.Header.Get("Origin")
-				allowedOrigins := []string{
-					"http://localhost:5173",
-					"http://localhost",
-					"http://127.0.0.1:5173",
-					"http://127.0.0.1",
-				}
-				for _, o := range allowedOrigins {
-					if origin == o {
-						return true
-					}
-				}
-				// 生产环境白名单（可从配置读取）
-				if origin == "https://your-domain.com" {
-					return true
-				}
-				return false
+				// 允许所有来源（适用于本地运行和二进制文件直接访问）
+				// 生产环境可改为严格白名单验证
+				return true
 			},
 		},
 	}
@@ -211,26 +211,26 @@ func (h *WebSocketHandler) HandleWebSocket(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// 获取订阅的任务 ID 或批量 ID
+	// 获取订阅的任务 ID 或批量 ID（可选参数）
 	taskID := r.URL.Query().Get("task_id")
 	batchID := r.URL.Query().Get("batch_id")
 
-	if taskID == "" && batchID == "" {
-		http.Error(w, "Missing task_id or batch_id parameter", http.StatusBadRequest)
-		return
-	}
+	// 如果没有指定 task_id 或 batch_id，则订阅该用户的所有任务（全局订阅）
+	globalSubscribe := taskID == "" && batchID == ""
 
 	// 验证用户权限（用户只能订阅自己的任务）
-	if taskID != "" {
-		if !h.hasTaskPermission(claims.UserID, taskID) {
-			http.Error(w, "No permission to access this task", http.StatusForbidden)
-			return
+	if !globalSubscribe {
+		if taskID != "" {
+			if !h.hasTaskPermission(claims.UserID, taskID) {
+				http.Error(w, "No permission to access this task", http.StatusForbidden)
+				return
+			}
 		}
-	}
-	if batchID != "" {
-		if !h.hasBatchPermission(claims.UserID, batchID) {
-			http.Error(w, "No permission to access this batch", http.StatusForbidden)
-			return
+		if batchID != "" {
+			if !h.hasBatchPermission(claims.UserID, batchID) {
+				http.Error(w, "No permission to access this batch", http.StatusForbidden)
+				return
+			}
 		}
 	}
 
@@ -357,26 +357,26 @@ func (h *WebSocketHandler) HandleProgressStream(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	// 获取订阅的任务 ID 或批量 ID
+	// 获取订阅的任务 ID 或批量 ID（可选参数）
 	taskID := r.URL.Query().Get("task_id")
 	batchID := r.URL.Query().Get("batch_id")
 
-	if taskID == "" && batchID == "" {
-		http.Error(w, "Missing task_id or batch_id parameter", http.StatusBadRequest)
-		return
-	}
+	// 如果没有指定 task_id 或 batch_id，则订阅该用户的所有任务（全局订阅）
+	globalSubscribe := taskID == "" && batchID == ""
 
 	// 验证用户权限（用户只能订阅自己的任务）
-	if taskID != "" {
-		if !h.hasTaskPermission(claims.UserID, taskID) {
-			http.Error(w, "No permission to access this task", http.StatusForbidden)
-			return
+	if !globalSubscribe {
+		if taskID != "" {
+			if !h.hasTaskPermission(claims.UserID, taskID) {
+				http.Error(w, "No permission to access this task", http.StatusForbidden)
+				return
+			}
 		}
-	}
-	if batchID != "" {
-		if !h.hasBatchPermission(claims.UserID, batchID) {
-			http.Error(w, "No permission to access this batch", http.StatusForbidden)
-			return
+		if batchID != "" {
+			if !h.hasBatchPermission(claims.UserID, batchID) {
+				http.Error(w, "No permission to access this batch", http.StatusForbidden)
+				return
+			}
 		}
 	}
 
@@ -395,9 +395,10 @@ func (h *WebSocketHandler) HandleProgressStream(w http.ResponseWriter, r *http.R
 		Type:      "connected",
 		Timestamp: time.Now(),
 		Data: map[string]interface{}{
-			"user_id":  claims.UserID,
-			"task_id":  taskID,
-			"batch_id": batchID,
+			"user_id":         claims.UserID,
+			"task_id":         taskID,
+			"batch_id":        batchID,
+			"global_subscribe": globalSubscribe,
 		},
 	}
 	fmt.Fprintf(w, "data: %s\n\n", toJSON(initialMsg))
@@ -420,11 +421,14 @@ func (h *WebSocketHandler) HandleProgressStream(w http.ResponseWriter, r *http.R
 			w.(http.Flusher).Flush()
 		case msg := <-ch:
 			// 过滤消息，只发送相关的任务更新
-			if taskID != "" && msg.TaskID != taskID {
-				continue
-			}
-			if batchID != "" && msg.BatchID != batchID {
-				continue
+			// 如果是全局订阅，则接收所有消息；否则只接收指定任务/批量任务的消息
+			if !globalSubscribe {
+				if taskID != "" && msg.TaskID != taskID {
+					continue
+				}
+				if batchID != "" && msg.BatchID != batchID {
+					continue
+				}
 			}
 			fmt.Fprintf(w, "data: %s\n\n", toJSON(msg))
 			w.(http.Flusher).Flush()
