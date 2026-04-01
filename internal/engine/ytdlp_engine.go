@@ -133,11 +133,12 @@ func (e *YtdlpEngine) Download(ctx context.Context, url string, options Download
 		}
 
 		// 画质选择
+		// 注意：不要使用 "-f best"，因为某些网站（如Bilibili）没有预合并的best格式
+		// 不指定格式时，yt-dlp会自动选择最佳视频+音频并合并
 		if options.Quality != "" && options.Quality != "best" {
 			args = append(args, "-f", "bestvideo[height<="+options.Quality+"]+bestaudio/best")
-		} else {
-			args = append(args, "-f", "best")
 		}
+		// 如果 Quality 为空或 "best"，不添加 -f 参数，让 yt-dlp 自动选择最佳格式
 
 		// 超时设置
 		if options.Timeout > 0 {
@@ -218,6 +219,20 @@ func (e *YtdlpEngine) Download(ctx context.Context, url string, options Download
 						lastProgress.FilePath = filePath
 					}
 				}
+				// 解析合并后的文件路径 [Merger] Merging formats into "/path/to/file"
+				// 这对于Bilibili等需要合并音视频的网站很重要
+				if strings.Contains(line, "[Merger] Merging formats into") {
+					filePath := strings.TrimSpace(strings.SplitN(line, "Merging formats into", 2)[1])
+					// 移除可能的引号
+					filePath = strings.Trim(filePath, "\"")
+					// 如果是相对路径，转换为绝对路径
+					if !filepath.IsAbs(filePath) && options.OutputDir != "" {
+						filePath = filepath.Join(options.OutputDir, filePath)
+					}
+					if lastProgress != nil {
+						lastProgress.FilePath = filePath
+					}
+				}
 			}
 		}()
 
@@ -234,6 +249,20 @@ func (e *YtdlpEngine) Download(ctx context.Context, url string, options Download
 				// 解析文件路径 [download] Destination: /path/to/file
 				if strings.Contains(line, "[download] Destination:") {
 					filePath := strings.TrimSpace(strings.SplitN(line, "Destination:", 2)[1])
+					// 如果是相对路径，转换为绝对路径
+					if !filepath.IsAbs(filePath) && options.OutputDir != "" {
+						filePath = filepath.Join(options.OutputDir, filePath)
+					}
+					if lastProgress != nil {
+						lastProgress.FilePath = filePath
+					}
+				}
+				// 解析合并后的文件路径 [Merger] Merging formats into "/path/to/file"
+				// 这对于Bilibili等需要合并音视频的网站很重要
+				if strings.Contains(line, "[Merger] Merging formats into") {
+					filePath := strings.TrimSpace(strings.SplitN(line, "Merging formats into", 2)[1])
+					// 移除可能的引号
+					filePath = strings.Trim(filePath, "\"")
 					// 如果是相对路径，转换为绝对路径
 					if !filepath.IsAbs(filePath) && options.OutputDir != "" {
 						filePath = filepath.Join(options.OutputDir, filePath)
