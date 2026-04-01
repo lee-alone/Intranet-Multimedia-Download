@@ -481,6 +481,11 @@ func (s *Server) registerRoutes() {
 		// 检查是否是单任务操作
 		path := r.URL.Path
 		parts := strings.Split(path, "/")
+		// 路径格式：/api/v1/tasks/{id}/download
+		if len(parts) == 6 && parts[5] == "download" && r.Method == http.MethodGet {
+			taskHandler.DownloadFile(w, r)
+			return
+		}
 		// 路径格式：/api/v1/tasks/{id}
 		if len(parts) == 5 && parts[4] != "" {
 			if r.Method == http.MethodDelete {
@@ -488,11 +493,6 @@ func (s *Server) registerRoutes() {
 				// 为了保持向后兼容，统一使用 CancelTask 处理
 				// 前端应该根据任务状态调用不同的 API
 				taskHandler.CancelOrDeleteTask(w, r)
-				return
-			}
-			// 路径格式：/api/v1/tasks/{id}/download
-			if len(parts) == 6 && parts[5] == "download" && r.Method == http.MethodGet {
-				taskHandler.DownloadFile(w, r)
 				return
 			}
 		}
@@ -724,7 +724,7 @@ func (s *Server) registerStaticFiles() {
 
 			// 获取去掉了开头斜杠的路径，用于 fs.Stat 检查文件是否存在
 			path := strings.TrimPrefix(r.URL.Path, "/")
-			
+
 			// 检查文件是否存在
 			if _, err := fs.Stat(webFS, path); err != nil {
 				// 文件不存在，很可能是 SPA (单页应用) 路由
@@ -735,7 +735,7 @@ func (s *Server) registerStaticFiles() {
 				fileServer.ServeHTTP(w, r2)
 				return
 			}
-			
+
 			// 文件存在，直接服务
 			fileServer.ServeHTTP(w, r)
 		})
