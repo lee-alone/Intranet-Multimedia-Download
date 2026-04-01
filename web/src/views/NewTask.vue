@@ -121,11 +121,9 @@ async function handleSubmit() {
       success.value = isBatch.value
         ? `成功创建 ${parseBatchUrls().length} 个任务`
         : '任务创建成功'
-      
-      // 延迟跳转到任务列表
-      setTimeout(() => {
-        router.push('/tasks')
-      }, 1000)
+
+      // 立即跳转，不再延迟（SSE 会在 Tasks.vue 中自动重连）
+      router.push('/tasks')
     } else {
       error.value = response.message || '创建任务失败'
     }

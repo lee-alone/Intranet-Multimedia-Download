@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount } from 'vue'
-import { get, del, createWebSocketUrl } from '@/api'
+import { get, del } from '@/api'
 
 // 任务类型
 interface Task {
@@ -23,28 +23,21 @@ interface SmoothedProgress {
   lastUpdated?: number // 最后更新时间戳
 }
 
-// 离线消息缓存
-interface OfflineMessage {
-  task_id: string
-  status?: string
-  progress?: number
-  timestamp: string
-}
+// SSE 已禁用：OfflineMessage 接口已删除
 
 // 状态
 const tasks = ref<Task[]>([])
 const loading = ref(true)
 const error = ref('')
 const showBatchView = ref(false)
-const eventSource = ref<EventSource | null>(null)
-const usePolling = ref(false) // 是否使用轮询降级方案
-const pollInterval = ref(5000) // 轮询间隔（毫秒）
+// const eventSource = ref<EventSource | null>(null)  // SSE 已禁用
+// const usePolling = ref(true) // 始终使用轮询模式
 let pollTimer: ReturnType<typeof setInterval> | null = null
-const reconnectAttempts = ref(0)
-const maxReconnectAttempts = 5
+// const reconnectAttempts = ref(0)  // SSE 已禁用
+// const maxReconnectAttempts = 5  // SSE 已禁用
 const lastProgressCache = ref<Map<string, SmoothedProgress>>(new Map()) // 离线缓存
-const offlineMessages = ref<OfflineMessage[]>([]) // 离线期间的消息队列
-const isOffline = ref(false) // 是否处于离线状态
+// const offlineMessages = ref<OfflineMessage[]>([])  // SSE 已禁用
+// const isOffline = ref(false)  // SSE 已禁用
 const cacheCleanupInterval = ref<ReturnType<typeof setInterval> | null>(null) // 缓存清理定时器
 
 // 状态样式映射
@@ -203,49 +196,39 @@ function getSmoothedProgress(taskId: string, progress: number): number {
   return smoothed
 }
 
-// 处理离线消息补发
-function processOfflineMessages() {
-  if (offlineMessages.value.length === 0) return
-
-  offlineMessages.value.forEach(msg => {
-    const taskId = msg.task_id
-    const index = tasks.value.findIndex(t => t.id === taskId)
-    if (index !== -1) {
-      const smoothedProgress = getSmoothedProgress(
-        taskId,
-        msg.progress !== undefined ? msg.progress : tasks.value[index].progress
-      )
-      const newStatus = msg.status && ['queued', 'downloading', 'merging', 'completed', 'failed', 'cancelled'].includes(msg.status)
-        ? msg.status as Task['status']
-        : tasks.value[index].status
-        
-      tasks.value[index] = {
-        ...tasks.value[index],
-        progress: smoothedProgress,
-        status: newStatus,
-        message: msg.status === 'failed' ? '任务失败' : undefined,
-      }
-    }
-  })
-  
-  offlineMessages.value = []
-}
-
 // 获取任务列表
 async function fetchTasks() {
   try {
     const response = await get<Task[]>('/tasks')
     // 兼容 code=0 或 success=true 两种格式
     if ((response.code === 0 || response.success === true) && response.data) {
-      tasks.value = response.data.map(task => ({
-        ...task,
-        progress: getSmoothedProgress(task.id, task.progress)
-      }))
+      const newTasks = response.data.map(task => {
+        // 终态任务（completed/failed/cancelled）跳过平滑算法，直接使用后端返回的进度
+        const isTerminalStatus = ['completed', 'failed', 'cancelled'].includes(task.status)
+        const progress = isTerminalStatus ? task.progress : getSmoothedProgress(task.id, task.progress)
+        return {
+          ...task,
+          progress
+        }
+      })
       
-      // 恢复在线后处理离线消息
-      if (isOffline.value) {
-        isOffline.value = false
-        processOfflineMessages()
+      // 检测是否有任务刚完成（之前是 downloading，现在是 completed）
+      const hasNewCompleted = newTasks.some(newTask => {
+        const oldTask = tasks.value.find(t => t.id === newTask.id)
+        return oldTask &&
+               (oldTask.status === 'downloading' || oldTask.status === 'merging') &&
+               (newTask.status === 'completed' || newTask.status === 'failed' || newTask.status === 'cancelled')
+      })
+      
+      tasks.value = newTasks
+
+      // 智能控制轮询启停
+      updatePolling()
+      
+      // 如果有新完成的任务，立即再刷新一次（确保 UI 立即更新）
+      if (hasNewCompleted) {
+        console.log('检测到任务完成，立即刷新')
+        setTimeout(() => fetchTasks(), 500)
       }
     }
   } catch (e: any) {
@@ -358,104 +341,14 @@ function moveDown(taskId: string) {
   }
 }
 
-// 连接 SSE（Server-Sent Events）
-function connectSSE() {
-  if (usePolling.value) {
-    startPolling()
-    return
-  }
-
-  try {
-    // 使用 EventSource 进行 SSE 连接
-    const token = localStorage.getItem('token')
-    const url = createWebSocketUrl('/api/v1/progress')
-    const fullUrl = `${url}${url.includes('?') ? '&' : '?'}token=${token}`
-    
-    const es = new EventSource(fullUrl)
-    eventSource.value = es
-
-    es.onopen = () => {
-      reconnectAttempts.value = 0
-      isOffline.value = false
-    }
-  
-    es.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data)
-        handleSSEMessage(data)
-      } catch (e) {
-        // 忽略解析错误
-      }
-    }
-
-    es.onerror = (_error) => {
-      isOffline.value = true
-  
-      // 错误时切换到轮询降级方案
-      if (reconnectAttempts.value >= maxReconnectAttempts) {
-        usePolling.value = true
-        es.close()
-        startPolling()
-      } else {
-        reconnectAttempts.value++
-        const delay = Math.min(1000 * Math.pow(2, reconnectAttempts.value), 30000)
-        setTimeout(() => {
-          if (!usePolling.value) {
-            connectSSE()
-          }
-        }, delay)
-      }
-    }
-  } catch (e) {
-    // 降级到轮询
-    usePolling.value = true
-    startPolling()
-  }
-}
-
-// 处理 SSE 消息
-function handleSSEMessage(data: any) {
-  if (data.type === 'ping') {
-    // 心跳响应
-    return
-  }
-
-  if (data.type === 'task_update' && data.task_id) {
-    // 更新对应任务进度 - 使用字符串比较，因为后端 task_id 是 string
-    const taskId = data.task_id
-    const index = tasks.value.findIndex(t => t.id === taskId)
-
-    if (index !== -1) {
-      const smoothedProgress = getSmoothedProgress(
-        taskId,
-        data.progress !== undefined ? data.progress : tasks.value[index].progress
-      )
-      tasks.value[index] = {
-        ...tasks.value[index],
-        progress: smoothedProgress,
-        status: data.status || tasks.value[index].status,
-        message: data.message,
-      }
-    } else {
-      // 如果任务不存在，缓存消息（离线补发）
-      offlineMessages.value.push({
-        task_id: data.task_id,
-        status: data.status,
-        progress: data.progress,
-        timestamp: data.timestamp
-      })
-    }
-  }
-}
-
-// 轮询降级方案
+// 轮询：智能控制（有任务进行时才轮询）
 function startPolling() {
   if (pollTimer) {
     clearInterval(pollTimer)
   }
   pollTimer = setInterval(() => {
     fetchTasks()
-  }, pollInterval.value)
+  }, 3000) // 3 秒轮询一次，避免用户焦虑
 }
 
 function stopPolling() {
@@ -465,11 +358,30 @@ function stopPolling() {
   }
 }
 
+// 检查是否有活跃任务（需要继续轮询）
+function hasActiveTasks(): boolean {
+  return tasks.value.some(t => ['queued', 'downloading', 'merging'].includes(t.status))
+}
+
+// 智能轮询控制：根据任务状态自动启停
+function updatePolling() {
+  const active = hasActiveTasks()
+  if (active && !pollTimer) {
+    // 有活跃任务且未轮询，启动轮询
+    console.log('检测到活跃任务，启动轮询')
+    startPolling()
+  } else if (!active && pollTimer) {
+    // 无活跃任务且在轮询，停止轮询（节约资源）
+    console.log('无活跃任务，停止轮询')
+    stopPolling()
+  }
+}
+
 // 生命周期
 onMounted(() => {
+  // 加载初始任务列表（会自动触发轮询控制）
   fetchTasks()
-  connectSSE()
-  
+
   // 定期清理缓存（每 5 分钟）
   cacheCleanupInterval.value = setInterval(() => {
     cleanupFinishedTasks()
@@ -478,9 +390,6 @@ onMounted(() => {
 
 // 清理
 onBeforeUnmount(() => {
-  if (eventSource.value) {
-    eventSource.value.close()
-  }
   stopPolling()
   if (cacheCleanupInterval.value) {
     clearInterval(cacheCleanupInterval.value)
@@ -491,7 +400,18 @@ onBeforeUnmount(() => {
 <template>
   <div>
     <div class="flex justify-between items-center mb-6">
-      <h1 class="text-2xl font-bold text-gray-900">任务列表</h1>
+      <div class="flex items-center space-x-3">
+        <h1 class="text-2xl font-bold text-gray-900">任务列表</h1>
+        <!-- 轮询状态指示器 -->
+        <span
+          v-if="!loading && pollTimer"
+          class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800"
+          title="每 3 秒自动刷新"
+        >
+          <span class="w-2 h-2 rounded-full mr-1.5 bg-blue-500 animate-pulse"></span>
+          轮询中
+        </span>
+      </div>
       <div class="flex space-x-3">
         <button
           @click="showBatchView = !showBatchView"

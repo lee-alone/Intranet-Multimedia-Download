@@ -310,6 +310,8 @@ func (s *TaskScheduler) executeTask(task *Task) {
 			task.Title = lastProgress.Title
 		}
 		task.CompletedAt = time.Now()
+		// 任务完成时强制设置进度为 100%（避免卡在 merging 前的进度）
+		task.SetProgress(DownloadProgress{Percent: 100, Status: "completed"})
 		task.TransitionStatus(TaskStatusCompleted)
 		s.notifyTaskUpdate(task)
 	}

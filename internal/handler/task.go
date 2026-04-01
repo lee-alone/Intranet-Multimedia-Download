@@ -218,6 +218,9 @@ func (h *TaskHandler) CreateTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 立即推送任务创建通知（让前端能立刻收到新任务）
+	NotifyTaskUpdate(task)
+
 	// 记录审计日志
 	{
 		userIDVal := int64(claims.UserID)
@@ -392,6 +395,8 @@ func (h *TaskHandler) CreateBatchTask(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		actualStarted++
+		// 立即推送任务创建通知（让前端能立刻收到新任务）
+		NotifyTaskUpdate(task)
 	}
 
 	// 更新批量任务状态

@@ -62,8 +62,8 @@ func GetProgressHub() *ProgressHub {
 			taskSubs:   make(map[string]map[*Client]bool),
 			batchSubs:  make(map[string]map[*Client]bool),
 			broadcast:  make(chan WSMessage, 256),
-			register:   make(chan *Client),
-			unregister: make(chan *Client),
+			register:   make(chan *Client, 256),
+			unregister: make(chan *Client, 256),
 		}
 		go progressHub.run()
 	})
@@ -91,33 +91,36 @@ func (h *ProgressHub) run() {
 				h.batchSubs[client.batchID][client] = true
 			}
 			h.mu.Unlock()
-			log.Printf("WebSocket client connected: user=%d, task=%s, batch=%s", client.userID, client.taskID, client.batchID)
+			log.Printf("Client registered: user=%d, task=%s, batch=%s", client.userID, client.taskID, client.batchID)
 
 		case client := <-h.unregister:
 			h.mu.Lock()
-			if _, ok := h.clients[client]; ok {
-				delete(h.clients, client)
-				close(client.send)
-			}
-			// 清理订阅
-			if client.taskID != "" && h.taskSubs[client.taskID] != nil {
-				delete(h.taskSubs[client.taskID], client)
-			}
-			if client.batchID != "" && h.batchSubs[client.batchID] != nil {
-				delete(h.batchSubs[client.batchID], client)
-			}
+			h.unregisterClientInternal(client)
 			h.mu.Unlock()
 
 		case msg := <-h.broadcast:
-			h.broadcastMessage(msg)
+			// 广播消息，获取需要清理的客户端列表
+			clientsToRemove := h.broadcastMessage(msg)
+			// 如果有需要清理的客户端，统一处理
+			if len(clientsToRemove) > 0 {
+				h.mu.Lock()
+				for _, client := range clientsToRemove {
+					h.unregisterClientInternal(client)
+				}
+				h.mu.Unlock()
+			}
 		}
 	}
 }
 
 // broadcastMessage 广播消息给相关订阅者
-func (h *ProgressHub) broadcastMessage(msg WSMessage) {
+// 返回需要清理的客户端列表（由 run() 协程统一处理）
+func (h *ProgressHub) broadcastMessage(msg WSMessage) []*Client {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
+
+	// 收集需要清理的客户端（在 RLock 范围内只收集，不删除）
+	var clientsToRemove []*Client
 
 	// 发送到任务订阅者
 	if clients, ok := h.taskSubs[msg.TaskID]; ok {
@@ -125,10 +128,8 @@ func (h *ProgressHub) broadcastMessage(msg WSMessage) {
 			select {
 			case client.send <- msg:
 			default:
-				// 客户端缓冲区已满，断开连接并记录日志
-				log.Printf("WebSocket client buffer full, disconnecting: user=%d, task=%s", client.userID, msg.TaskID)
-				close(client.send)
-				delete(h.clients, client)
+				// 客户端缓冲区已满，标记为需要清理
+				clientsToRemove = append(clientsToRemove, client)
 			}
 		}
 	}
@@ -139,10 +140,8 @@ func (h *ProgressHub) broadcastMessage(msg WSMessage) {
 			select {
 			case client.send <- msg:
 			default:
-				// 客户端缓冲区已满，断开连接并记录日志
-				log.Printf("WebSocket client buffer full, disconnecting: user=%d, batch=%s", client.userID, msg.BatchID)
-				close(client.send)
-				delete(h.clients, client)
+				// 客户端缓冲区已满，标记为需要清理
+				clientsToRemove = append(clientsToRemove, client)
 			}
 		}
 	}
@@ -154,13 +153,44 @@ func (h *ProgressHub) broadcastMessage(msg WSMessage) {
 			select {
 			case client.send <- msg:
 			default:
-				// 客户端缓冲区已满，断开连接并记录日志
-				log.Printf("WebSocket client buffer full, disconnecting: user=%d (global)", client.userID)
-				close(client.send)
-				delete(h.clients, client)
+				// 客户端缓冲区已满，标记为需要清理
+				clientsToRemove = append(clientsToRemove, client)
 			}
 		}
 	}
+
+	// 返回需要清理的客户端列表，由调用者（run 协程）处理
+	return clientsToRemove
+}
+
+// unregisterClientInternal 内部注销函数（必须在持有 h.mu.Lock 的情况下调用）
+func (h *ProgressHub) unregisterClientInternal(client *Client) {
+	if client == nil {
+		return
+	}
+
+	if _, ok := h.clients[client]; ok {
+		delete(h.clients, client)
+		close(client.send)
+	}
+
+	// 从任务订阅移除
+	if client.taskID != "" && h.taskSubs[client.taskID] != nil {
+		delete(h.taskSubs[client.taskID], client)
+		if len(h.taskSubs[client.taskID]) == 0 {
+			delete(h.taskSubs, client.taskID)
+		}
+	}
+
+	// 从批量任务订阅移除
+	if client.batchID != "" && h.batchSubs[client.batchID] != nil {
+		delete(h.batchSubs[client.batchID], client)
+		if len(h.batchSubs[client.batchID]) == 0 {
+			delete(h.batchSubs, client.batchID)
+		}
+	}
+
+	log.Printf("Client unregistered: user=%d, task=%s, batch=%s", client.userID, client.taskID, client.batchID)
 }
 
 // BroadcastToTask 向特定任务广播消息
@@ -386,19 +416,19 @@ func (h *WebSocketHandler) HandleProgressStream(w http.ResponseWriter, r *http.R
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 
-	// 订阅任务更新
-	ch := h.hub.Subscribe()
-	defer h.hub.Unsubscribe(ch)
+	// 订阅任务更新（传入 userID、taskID、batchID）
+	client := h.hub.Subscribe(claims.UserID, taskID, batchID)
+	defer h.hub.Unsubscribe(client)
 
 	// 发送初始连接消息
 	initialMsg := WSMessage{
 		Type:      "connected",
 		Timestamp: time.Now(),
 		Data: map[string]interface{}{
-			"user_id":         claims.UserID,
-			"task_id":         taskID,
-			"batch_id":        batchID,
-			"global_subscribe": globalSubscribe,
+			"user_id":          claims.UserID,
+			"task_id":          taskID,
+			"batch_id":         batchID,
+			"global_subscribe": taskID == "" && batchID == "",
 		},
 	}
 	fmt.Fprintf(w, "data: %s\n\n", toJSON(initialMsg))
@@ -419,16 +449,18 @@ func (h *WebSocketHandler) HandleProgressStream(w http.ResponseWriter, r *http.R
 			// 发送心跳
 			fmt.Fprintf(w, "data: {\"type\":\"ping\",\"timestamp\":\"%s\"}\n\n", time.Now().Format(time.RFC3339))
 			w.(http.Flusher).Flush()
-		case msg := <-ch:
+		case msg, ok := <-client.send:
+			if !ok {
+				// 通道已关闭
+				return
+			}
 			// 过滤消息，只发送相关的任务更新
-			// 如果是全局订阅，则接收所有消息；否则只接收指定任务/批量任务的消息
-			if !globalSubscribe {
-				if taskID != "" && msg.TaskID != taskID {
-					continue
-				}
-				if batchID != "" && msg.BatchID != batchID {
-					continue
-				}
+			// 如果是全局订阅（taskID 和 batchID 都为空），则接收所有消息
+			if taskID != "" && msg.TaskID != taskID {
+				continue
+			}
+			if batchID != "" && msg.BatchID != batchID {
+				continue
 			}
 			fmt.Fprintf(w, "data: %s\n\n", toJSON(msg))
 			w.(http.Flusher).Flush()
@@ -436,33 +468,52 @@ func (h *WebSocketHandler) HandleProgressStream(w http.ResponseWriter, r *http.R
 	}
 }
 
-// Subscribe 订阅所有任务更新（SSE 方案）
-func (h *ProgressHub) Subscribe() chan WSMessage {
+// Subscribe 订阅任务更新（支持 taskID 和 batchID）
+// 返回 *Client 对象，用于后续取消订阅
+func (h *ProgressHub) Subscribe(userID int, taskID, batchID string) *Client {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	ch := make(chan WSMessage, 100)
-	// 使用一个虚拟客户端来跟踪订阅
-	client := &Client{send: ch}
+	// 创建客户端对象
+	client := &Client{
+		hub:     h,
+		userID:  userID,
+		taskID:  taskID,
+		batchID: batchID,
+		send:    make(chan WSMessage, 512), // 增大缓冲区以缓冲网络波动
+		stop:    make(chan struct{}),
+	}
+
+	// 注册到 hub
 	h.clients[client] = true
-	return ch
+
+	// 订阅任务或批量任务
+	if taskID != "" {
+		if h.taskSubs[taskID] == nil {
+			h.taskSubs[taskID] = make(map[*Client]bool)
+		}
+		h.taskSubs[taskID][client] = true
+	}
+	if batchID != "" {
+		if h.batchSubs[batchID] == nil {
+			h.batchSubs[batchID] = make(map[*Client]bool)
+		}
+		h.batchSubs[batchID][client] = true
+	}
+
+	log.Printf("SSE client subscribed: user=%d, task=%s, batch=%s", userID, taskID, batchID)
+	return client
 }
 
-// Unsubscribe 取消订阅（SSE 方案）- 防止重复调用导致 panic
-func (h *ProgressHub) Unsubscribe(ch chan WSMessage) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	client := &Client{send: ch}
-	if _, ok := h.clients[client]; ok {
-		delete(h.clients, client)
-		select {
-		case <-ch:
-			// 通道已关闭
-		default:
-			close(ch)
-		}
+// Unsubscribe 取消订阅
+func (h *ProgressHub) Unsubscribe(client *Client) {
+	if client == nil {
+		return
 	}
+
+	h.mu.Lock()
+	h.unregisterClientInternal(client)
+	h.mu.Unlock()
 }
 
 // hasTaskPermission 检查用户是否有权限访问任务
@@ -498,16 +549,37 @@ func NotifyTaskUpdate(task *engine.Task) {
 		return
 	}
 
+	// 将引擎状态转换为前端期望的英文状态
+	frontendStatus := taskStatusToFrontend(task.Status)
+
 	msg := WSMessage{
 		Type:      "task_update",
 		TaskID:    task.ID,
 		BatchID:   task.BatchID,
-		Status:    string(task.Status),
+		Status:    frontendStatus,
 		Progress:  task.Progress.Percent,
 		Timestamp: time.Now(),
 	}
 
 	hub.BroadcastToTask(task.ID, msg)
+}
+
+// taskStatusToFrontend 将引擎状态转换为前端期望的英文状态
+func taskStatusToFrontend(status engine.TaskStatus) string {
+	switch status {
+	case engine.TaskStatusQueued:
+		return "queued"
+	case engine.TaskStatusDownloading, engine.TaskStatusMerging:
+		return "downloading"
+	case engine.TaskStatusCompleted:
+		return "completed"
+	case engine.TaskStatusFailed:
+		return "failed"
+	case engine.TaskStatusCancelled:
+		return "cancelled"
+	default:
+		return "queued"
+	}
 }
 
 // toJSON 将对象转换为 JSON 字符串

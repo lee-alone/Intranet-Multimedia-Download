@@ -368,16 +368,75 @@ func (s *Server) registerRoutes() {
 	// 创建 WebSocket/进度流处理器（传入 db 用于权限验证）
 	wsHandler := handler.NewWebSocketHandler(s.db, s.jwtMgr)
 
+	// 用于跟踪每个任务的最后推送进度（用于数据库更新）
+	type taskProgressState struct {
+		lastDbProgress int // 上次写入数据库的进度（整数）
+		lastStatus     string
+	}
+	progressStates := make(map[string]*taskProgressState)
+	var progressStatesMu sync.Mutex
+
 	// 设置任务调度器的进度更新回调，用于 WebSocket 推送和数据库更新
 	s.scheduler.SetProgressUpdateCallback(func(task *engine.Task) {
-		handler.NotifyTaskUpdate(task)
-
-		// 当任务完成时，保存 file_path 和 title 到数据库
+		currentStatus := string(task.Status)
+		currentProgressInt := int(task.Progress.Percent) // 取整数部分
+		
+		// 获取或创建状态跟踪
+		progressStatesMu.Lock()
+		state, exists := progressStates[task.ID]
+		if !exists {
+			state = &taskProgressState{}
+			progressStates[task.ID] = state
+		}
+		progressStatesMu.Unlock()
+		
+		// 当任务完成时，保存 file_path 和 title 到数据库，进度强制设为 100%
 		if task.Status == engine.TaskStatusCompleted && task.FilePath != "" {
-			_, err := s.db.Exec(`UPDATE tasks SET file_path = ?, title = ?, status = 'completed', completed_at = ? WHERE id = ?`, task.FilePath, task.Title, time.Now(), task.ID)
+			_, err := s.db.Exec(`UPDATE tasks SET file_path = ?, title = ?, status = 'completed', completed_at = ?, progress = 100 WHERE id = ?`,
+				task.FilePath, task.Title, time.Now(), task.ID)
 			if err != nil {
 				log.Printf("保存文件路径和标题到数据库失败：%v", err)
 			}
+			// 数据库更新后推送，确保前端收到完成状态
+			handler.NotifyTaskUpdate(task)
+			// 清理状态跟踪
+			progressStatesMu.Lock()
+			delete(progressStates, task.ID)
+			progressStatesMu.Unlock()
+		} else if task.Status == engine.TaskStatusDownloading {
+			// 下载中：只有进度整数部分变化或状态变化时才写数据库（减少 IO）
+			shouldUpdateDB := false
+			if state.lastStatus != currentStatus {
+				shouldUpdateDB = true
+			} else if currentProgressInt != state.lastDbProgress {
+				shouldUpdateDB = true
+			}
+			
+			if shouldUpdateDB {
+				_, err := s.db.Exec(`UPDATE tasks SET progress = ?, status = ? WHERE id = ?`, currentProgressInt, currentStatus, task.ID)
+				if err != nil {
+					log.Printf("更新任务进度到数据库失败：%v", err)
+				}
+				// 更新状态跟踪
+				progressStatesMu.Lock()
+				state.lastDbProgress = currentProgressInt
+				state.lastStatus = currentStatus
+				progressStatesMu.Unlock()
+			}
+			
+			// 推送 SSE（前端可能还在使用）
+			handler.NotifyTaskUpdate(task)
+		} else if task.Status == engine.TaskStatusFailed || task.Status == engine.TaskStatusCancelled {
+			// 失败/取消：更新数据库
+			_, err := s.db.Exec(`UPDATE tasks SET status = ?, progress = ? WHERE id = ?`, currentStatus, currentProgressInt, task.ID)
+			if err != nil {
+				log.Printf("更新任务状态到数据库失败：%v", err)
+			}
+			handler.NotifyTaskUpdate(task)
+			// 清理状态跟踪
+			progressStatesMu.Lock()
+			delete(progressStates, task.ID)
+			progressStatesMu.Unlock()
 		}
 	})
 
