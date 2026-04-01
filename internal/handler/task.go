@@ -1180,11 +1180,28 @@ func (h *TaskHandler) DownloadFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 打开文件
+	// 打开文件，如果失败则尝试从 downloads 目录查找
 	file, err := os.Open(filePath.String)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "打开文件失败")
-		return
+		// 文件路径可能因编码问题导致乱码，尝试从 downloads 目录查找
+		log.Printf("文件路径打开失败：%s, 错误：%v", filePath.String, err)
+		
+		// 获取任务 ID 对应的文件（通过遍历 downloads 目录）
+		fixedPath, findErr := h.findFileInDownloads(taskID, h.outputDir)
+		if findErr != nil {
+			writeError(w, http.StatusInternalServerError, "打开文件失败")
+			return
+		}
+		
+		file, err = os.Open(fixedPath)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "打开文件失败")
+			return
+		}
+		
+		// 更新数据库中的文件路径为正确的路径
+		_, _ = h.db.Exec(`UPDATE tasks SET file_path = ? WHERE id = ?`, fixedPath, taskID)
+		log.Printf("已修复文件路径：%s -> %s", filePath.String, fixedPath)
 	}
 	defer file.Close()
 
@@ -1385,4 +1402,131 @@ func sanitizeFilename(filename string) string {
 	}
 
 	return strings.TrimSpace(filename)
+}
+
+// findFileInDownloads 在 downloads 目录中查找任务对应的文件
+// 用于修复因编码问题导致的文件路径错误
+func (h *TaskHandler) findFileInDownloads(taskID, downloadsDir string) (string, error) {
+	// 首先查询数据库中的 file_path，用于匹配文件名
+	var filePath sql.NullString
+	err := h.db.QueryRow(`SELECT file_path FROM tasks WHERE id = ?`, taskID).Scan(&filePath)
+	if err != nil {
+		return "", fmt.Errorf("查询任务信息失败：%w", err)
+	}
+
+	// 遍历 downloads 目录，查找匹配的视频文件
+	entries, err := os.ReadDir(downloadsDir)
+	if err != nil {
+		return "", fmt.Errorf("读取 downloads 目录失败：%w", err)
+	}
+
+	// 支持的视频文件扩展名
+	videoExts := map[string]bool{
+		".mp4":  true,
+		".mkv":  true,
+		".webm": true,
+		".avi":  true,
+		".mov":  true,
+		".flv":  true,
+		".wmv":  true,
+		".m4v":  true,
+	}
+
+	// 收集所有视频文件
+	var videoFiles []string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		name := entry.Name()
+		ext := strings.ToLower(filepath.Ext(name))
+		if !videoExts[ext] {
+			continue
+		}
+		videoFiles = append(videoFiles, name)
+	}
+
+	// 如果数据库中只有单个视频文件，直接返回（最常见场景）
+	if len(videoFiles) == 1 {
+		return filepath.Join(downloadsDir, videoFiles[0]), nil
+	}
+
+	// 如果有多个视频文件，尝试从 file_path 中提取文件名进行匹配
+	if filePath.Valid && filePath.String != "" {
+		dbBaseName := filepath.Base(filePath.String)
+		
+		// 提取文件名中的数字和日期特征
+		dbNumbers := extractNumbers(dbBaseName)
+		
+		for _, name := range videoFiles {
+			// 尝试直接匹配文件名（处理可能的编码问题）
+			if name == dbBaseName {
+				return filepath.Join(downloadsDir, name), nil
+			}
+			
+			// 提取实际文件名的数字特征
+			realNumbers := extractNumbers(name)
+			
+			// 如果数字特征高度匹配（相同数字数量>=3 个），认为是同一文件
+			if matchNumbers(dbNumbers, realNumbers) {
+				return filepath.Join(downloadsDir, name), nil
+			}
+		}
+	}
+
+	// 如果没有任何匹配，返回第一个视频文件（适用于单任务场景）
+	if len(videoFiles) > 0 {
+		return filepath.Join(downloadsDir, videoFiles[0]), nil
+	}
+
+	// 如果没有找到任何视频文件，返回错误
+	return "", fmt.Errorf("未找到任务 %s 对应的文件", taskID)
+}
+
+// extractNumbers 从字符串中提取连续的数字序列
+func extractNumbers(s string) []string {
+	var numbers []string
+	var current string
+	
+	for _, r := range s {
+		if r >= '0' && r <= '9' {
+			current += string(r)
+		} else {
+			if current != "" {
+				numbers = append(numbers, current)
+				current = ""
+			}
+		}
+	}
+	if current != "" {
+		numbers = append(numbers, current)
+	}
+	return numbers
+}
+
+// matchNumbers 比较两个数字序列是否高度匹配
+func matchNumbers(nums1, nums2 []string) bool {
+	if len(nums1) == 0 || len(nums2) == 0 {
+		return false
+	}
+	
+	// 统计相同的数字数量
+	matchCount := 0
+	for _, n1 := range nums1 {
+		for _, n2 := range nums2 {
+			if n1 == n2 {
+				matchCount++
+				break
+			}
+		}
+	}
+	
+	// 如果至少有 2 个数字匹配，或者匹配了所有数字，认为是同一文件
+	minLen := len(nums1)
+	if len(nums2) < minLen {
+		minLen = len(nums2)
+	}
+	
+	return matchCount >= 2 || matchCount >= minLen
 }
