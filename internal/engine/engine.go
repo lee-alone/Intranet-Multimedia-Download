@@ -38,9 +38,10 @@ type DownloadProgress struct {
 	Downloaded int64   // 已下载字节
 	Total      int64   // 总字节
 	Speed      float64 // 下载速度 (bytes/s)
-	ETA        int     // 预计剩余时间 (秒)
+	ETA        int     // 预计剩余时间（秒）
 	Status     string  // 当前状态描述
 	FilePath   string  // 下载完成的文件路径
+	Title      string  // 视频标题
 }
 
 // DownloadResult 下载结果
@@ -85,6 +86,7 @@ type DownloadOptions struct {
 	CookieFile   string        // Cookie 文件路径
 	UserAgent    string        // User-Agent
 	Proxy        string        // 代理地址
+	TaskID       string        // 任务 ID（用于生成确定的文件名）
 }
 
 // EngineType 引擎类型

@@ -42,6 +42,7 @@ type Server struct {
 	whitelistMgr *middleware.WhitelistManager
 	alertManager *alert.AlertManager
 	logRotator   *logrotate.Rotator
+	outputDir    string // 下载目录
 
 	// 健康检查状态
 	healthMutex  sync.RWMutex
@@ -77,7 +78,7 @@ type Metrics struct {
 }
 
 // New 创建新的服务器实例
-func New(cfg *config.Config, db *sql.DB, scheduler *engine.TaskScheduler) (*Server, error) {
+func New(cfg *config.Config, db *sql.DB, scheduler *engine.TaskScheduler, outputDir string) (*Server, error) {
 	// 创建 JWT 管理器
 	jwtMgr, err := auth.NewJWTManager(
 		cfg.Auth.PrivateKey,
@@ -178,6 +179,7 @@ func New(cfg *config.Config, db *sql.DB, scheduler *engine.TaskScheduler) (*Serv
 		whitelistMgr: whitelistMgr,
 		alertManager: alertManager,
 		logRotator:   logRotator,
+		outputDir:    outputDir,
 		server: &http.Server{
 			Addr:         cfg.GetAddress(),
 			Handler:      mux,
@@ -360,15 +362,23 @@ func (s *Server) registerRoutes() {
 		authHandler.SetSSOClient(auth.NewSSOClient(ssoConfig))
 	}
 
-	// 创建任务处理器（传入白名单管理器和审计日志记录器）
-	taskHandler := handler.NewTaskHandler(s.db, s.scheduler, s.jwtMgr, s.whitelistMgr, s.auditLogger)
+	// 创建任务处理器（传入白名单管理器、审计日志记录器和下载目录）
+	taskHandler := handler.NewTaskHandler(s.db, s.scheduler, s.jwtMgr, s.whitelistMgr, s.auditLogger, s.outputDir)
 
 	// 创建 WebSocket/进度流处理器（传入 db 用于权限验证）
 	wsHandler := handler.NewWebSocketHandler(s.db, s.jwtMgr)
 
-	// 设置任务调度器的进度更新回调，用于 WebSocket 推送
+	// 设置任务调度器的进度更新回调，用于 WebSocket 推送和数据库更新
 	s.scheduler.SetProgressUpdateCallback(func(task *engine.Task) {
 		handler.NotifyTaskUpdate(task)
+
+		// 当任务完成时，保存 file_path 和 title 到数据库
+		if task.Status == engine.TaskStatusCompleted && task.FilePath != "" {
+			_, err := s.db.Exec(`UPDATE tasks SET file_path = ?, title = ?, status = 'completed', completed_at = ? WHERE id = ?`, task.FilePath, task.Title, time.Now(), task.ID)
+			if err != nil {
+				log.Printf("保存文件路径和标题到数据库失败：%v", err)
+			}
+		}
 	})
 
 	// 健康检查端点

@@ -6,9 +6,32 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"gopkg.in/yaml.v3"
 )
+
+// 全局变量存储二进制文件所在目录
+var baseDir string
+var baseDirOnce sync.Once
+
+// GetBaseDir 获取程序根目录（基于 os.Executable()，不受 CWD 影响）
+// 返回 .exe 文件所在目录，用于构建其他路径的基准
+func GetBaseDir() string {
+	baseDirOnce.Do(func() {
+		execPath, err := os.Executable()
+		if err != nil {
+			// 降级方案：使用 Getwd()
+			execPath, err = os.Getwd()
+			if err != nil {
+				execPath = "."
+			}
+		}
+		baseDir = filepath.Dir(execPath)
+		log.Printf("程序根目录：%s", baseDir)
+	})
+	return baseDir
+}
 
 // Config 系统配置
 type Config struct {

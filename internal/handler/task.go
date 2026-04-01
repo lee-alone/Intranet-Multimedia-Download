@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -34,17 +35,13 @@ type TaskHandler struct {
 }
 
 // NewTaskHandler 创建任务处理器
-func NewTaskHandler(db *sql.DB, scheduler *engine.TaskScheduler, jwtMgr *auth.JWTManager, whitelistMgr *middleware.WhitelistManager, auditLogger *audit.Logger) *TaskHandler {
-	// 获取下载目录和临时目录（相对于程序运行目录）
-	execDir, err := os.Getwd()
-	if err != nil {
-		execDir = "."
-	}
-	outputDir := filepath.Join(execDir, "downloads")
-	tempDir := filepath.Join(execDir, "temp")
-
+func NewTaskHandler(db *sql.DB, scheduler *engine.TaskScheduler, jwtMgr *auth.JWTManager, whitelistMgr *middleware.WhitelistManager, auditLogger *audit.Logger, outputDir string) *TaskHandler {
+	// 使用外部传入的 outputDir（基于 os.Executable() 计算）
 	// 确保目录存在
 	os.MkdirAll(outputDir, 0755)
+
+	// 临时目录设置为 outputDir 下的 temp 子目录
+	tempDir := filepath.Join(outputDir, "temp")
 	os.MkdirAll(tempDir, 0755)
 
 	return &TaskHandler{
@@ -197,6 +194,7 @@ func (h *TaskHandler) CreateTask(w http.ResponseWriter, r *http.Request) {
 			Quality:   quality,
 			OutputDir: h.outputDir,
 			Timeout:   time.Duration(3600) * time.Second, // 默认 1 小时超时
+			TaskID:    taskID,                            // 传递 TaskID 用于生成确定的文件名
 		},
 		CreatedAt: time.Now(),
 	}
@@ -354,6 +352,7 @@ func (h *TaskHandler) CreateBatchTask(w http.ResponseWriter, r *http.Request) {
 				Quality:   quality,
 				OutputDir: h.outputDir,
 				Timeout:   time.Duration(3600) * time.Second,
+				TaskID:    taskID, // 传递 TaskID 用于生成确定的文件名
 			},
 			BatchID:   batchID,
 			CreatedAt: time.Now(),
@@ -1174,36 +1173,57 @@ func (h *TaskHandler) DownloadFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 检查文件路径
-	if !filePath.Valid || filePath.String == "" {
-		writeError(w, http.StatusNotFound, "文件不存在")
-		return
+	// 检查文件路径 - 支持文件搬迁后的兼容性
+	var actualFilePath string
+	if filePath.Valid && filePath.String != "" {
+		dbFilePath := filePath.String
+		// 如果数据库存的是绝对路径但文件不存在（用户移动了文件夹），尝试在当前 outputDir 下寻找
+		if filepath.IsAbs(dbFilePath) {
+			if _, err := os.Stat(dbFilePath); os.IsNotExist(err) {
+				// 文件不在数据库记录的位置，尝试在当前程序的 downloads 目录下寻找
+				actualFilePath = filepath.Join(h.outputDir, filepath.Base(dbFilePath))
+				log.Printf("文件搬迁检测：原路径 %s 不存在，使用新路径 %s", dbFilePath, actualFilePath)
+			} else {
+				actualFilePath = dbFilePath
+			}
+		} else {
+			// 相对路径，直接拼接
+			actualFilePath = filepath.Join(h.outputDir, dbFilePath)
+		}
+	} else {
+		// 兜底方案：TaskID.mp4
+		actualFilePath = filepath.Join(h.outputDir, taskID+".mp4")
 	}
 
-	// 打开文件，如果失败则尝试从 downloads 目录查找
-	file, err := os.Open(filePath.String)
+	// 打开文件（优先使用 task_id 路径）
+	file, err := os.Open(actualFilePath)
 	if err != nil {
-		// 文件路径可能因编码问题导致乱码，尝试从 downloads 目录查找
-		log.Printf("文件路径打开失败：%s, 错误：%v", filePath.String, err)
-		
-		// 获取任务 ID 对应的文件（通过遍历 downloads 目录）
-		fixedPath, findErr := h.findFileInDownloads(taskID, h.outputDir)
-		if findErr != nil {
-			writeError(w, http.StatusInternalServerError, "打开文件失败")
-			return
+		// 尝试其他视频格式（.mkv, .webm 等）
+		videoExts := []string{".mkv", ".webm", ".avi", ".mov", ".flv", ".wmv", ".m4v"}
+		basePath := strings.TrimSuffix(actualFilePath, filepath.Ext(actualFilePath))
+		for _, ext := range videoExts {
+			testPath := basePath + ext
+			if testPath == actualFilePath {
+				continue // 跳过已尝试的扩展名
+			}
+			file, err = os.Open(testPath)
+			if err == nil {
+				actualFilePath = testPath
+				break
+			}
 		}
-		
-		file, err = os.Open(fixedPath)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "打开文件失败")
+			log.Printf("打开文件失败：%s, 错误：%v", actualFilePath, err)
+			writeError(w, http.StatusNotFound, "文件不存在")
 			return
 		}
-		
-		// 更新数据库中的文件路径为正确的路径
-		_, _ = h.db.Exec(`UPDATE tasks SET file_path = ? WHERE id = ?`, fixedPath, taskID)
-		log.Printf("已修复文件路径：%s -> %s", filePath.String, fixedPath)
 	}
 	defer file.Close()
+
+	// 更新数据库中的文件路径（如果之前为空或文件已搬迁）
+	if !filePath.Valid || filePath.String == "" || filePath.String != actualFilePath {
+		_, _ = h.db.Exec(`UPDATE tasks SET file_path = ? WHERE id = ?`, actualFilePath, taskID)
+	}
 
 	// 获取文件信息
 	fileInfo, err := file.Stat()
@@ -1214,10 +1234,19 @@ func (h *TaskHandler) DownloadFile(w http.ResponseWriter, r *http.Request) {
 	fileSize := fileInfo.Size()
 
 	// 获取文件名（带【教学引用】前缀）
-	filename := "download.mp4"
+	var rawTitle string
 	if title.Valid && title.String != "" {
-		filename = sanitizeFilename(title.String) + ".mp4"
+		// 数据库中有标题，使用标题
+		rawTitle = title.String
+	} else {
+		// 兜底：如果数据库没存标题，从物理文件名获取（排除后缀）
+		base := filepath.Base(actualFilePath)
+		ext := filepath.Ext(base)
+		rawTitle = strings.TrimSuffix(base, ext)
 	}
+	// 先清理标题中的非法字符，再添加前缀
+	cleanTitle := sanitizeFilename(rawTitle)
+	filename := cleanTitle + ".mp4"
 	// 添加【教学引用】前缀
 	displayFilename := "【教学引用】" + filename
 
@@ -1275,7 +1304,7 @@ func (h *TaskHandler) DownloadFile(w http.ResponseWriter, r *http.Request) {
 	contentLength := end - start + 1
 
 	// 根据文件扩展名动态设置 Content-Type
-	ext := strings.ToLower(filepath.Ext(filePath.String))
+	ext := strings.ToLower(filepath.Ext(actualFilePath))
 	contentType := "application/octet-stream"
 	switch ext {
 	case ".mp4", ".m4v":
@@ -1299,8 +1328,11 @@ func (h *TaskHandler) DownloadFile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 设置响应头
+	// 使用 RFC 6266 标准处理中文文件名
+	// 注意：第一个 filename="..." 只能包含 ASCII 字符，真正的中文名必须放在 filename* 中
+	encodedName := url.PathEscape(displayFilename)
 	w.Header().Set("Content-Type", contentType)
-	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", displayFilename))
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"download.mp4\"; filename*=UTF-8''%s", encodedName))
 	w.Header().Set("Content-Length", strconv.FormatInt(contentLength, 10))
 	w.Header().Set("Accept-Ranges", "bytes")
 	w.Header().Set("Cache-Control", "public, max-age=31536000")
@@ -1402,131 +1434,4 @@ func sanitizeFilename(filename string) string {
 	}
 
 	return strings.TrimSpace(filename)
-}
-
-// findFileInDownloads 在 downloads 目录中查找任务对应的文件
-// 用于修复因编码问题导致的文件路径错误
-func (h *TaskHandler) findFileInDownloads(taskID, downloadsDir string) (string, error) {
-	// 首先查询数据库中的 file_path，用于匹配文件名
-	var filePath sql.NullString
-	err := h.db.QueryRow(`SELECT file_path FROM tasks WHERE id = ?`, taskID).Scan(&filePath)
-	if err != nil {
-		return "", fmt.Errorf("查询任务信息失败：%w", err)
-	}
-
-	// 遍历 downloads 目录，查找匹配的视频文件
-	entries, err := os.ReadDir(downloadsDir)
-	if err != nil {
-		return "", fmt.Errorf("读取 downloads 目录失败：%w", err)
-	}
-
-	// 支持的视频文件扩展名
-	videoExts := map[string]bool{
-		".mp4":  true,
-		".mkv":  true,
-		".webm": true,
-		".avi":  true,
-		".mov":  true,
-		".flv":  true,
-		".wmv":  true,
-		".m4v":  true,
-	}
-
-	// 收集所有视频文件
-	var videoFiles []string
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-
-		name := entry.Name()
-		ext := strings.ToLower(filepath.Ext(name))
-		if !videoExts[ext] {
-			continue
-		}
-		videoFiles = append(videoFiles, name)
-	}
-
-	// 如果数据库中只有单个视频文件，直接返回（最常见场景）
-	if len(videoFiles) == 1 {
-		return filepath.Join(downloadsDir, videoFiles[0]), nil
-	}
-
-	// 如果有多个视频文件，尝试从 file_path 中提取文件名进行匹配
-	if filePath.Valid && filePath.String != "" {
-		dbBaseName := filepath.Base(filePath.String)
-		
-		// 提取文件名中的数字和日期特征
-		dbNumbers := extractNumbers(dbBaseName)
-		
-		for _, name := range videoFiles {
-			// 尝试直接匹配文件名（处理可能的编码问题）
-			if name == dbBaseName {
-				return filepath.Join(downloadsDir, name), nil
-			}
-			
-			// 提取实际文件名的数字特征
-			realNumbers := extractNumbers(name)
-			
-			// 如果数字特征高度匹配（相同数字数量>=3 个），认为是同一文件
-			if matchNumbers(dbNumbers, realNumbers) {
-				return filepath.Join(downloadsDir, name), nil
-			}
-		}
-	}
-
-	// 如果没有任何匹配，返回第一个视频文件（适用于单任务场景）
-	if len(videoFiles) > 0 {
-		return filepath.Join(downloadsDir, videoFiles[0]), nil
-	}
-
-	// 如果没有找到任何视频文件，返回错误
-	return "", fmt.Errorf("未找到任务 %s 对应的文件", taskID)
-}
-
-// extractNumbers 从字符串中提取连续的数字序列
-func extractNumbers(s string) []string {
-	var numbers []string
-	var current string
-	
-	for _, r := range s {
-		if r >= '0' && r <= '9' {
-			current += string(r)
-		} else {
-			if current != "" {
-				numbers = append(numbers, current)
-				current = ""
-			}
-		}
-	}
-	if current != "" {
-		numbers = append(numbers, current)
-	}
-	return numbers
-}
-
-// matchNumbers 比较两个数字序列是否高度匹配
-func matchNumbers(nums1, nums2 []string) bool {
-	if len(nums1) == 0 || len(nums2) == 0 {
-		return false
-	}
-	
-	// 统计相同的数字数量
-	matchCount := 0
-	for _, n1 := range nums1 {
-		for _, n2 := range nums2 {
-			if n1 == n2 {
-				matchCount++
-				break
-			}
-		}
-	}
-	
-	// 如果至少有 2 个数字匹配，或者匹配了所有数字，认为是同一文件
-	minLen := len(nums1)
-	if len(nums2) < minLen {
-		minLen = len(nums2)
-	}
-	
-	return matchCount >= 2 || matchCount >= minLen
 }

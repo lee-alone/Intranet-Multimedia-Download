@@ -115,21 +115,40 @@ func (e *YtdlpEngine) Download(ctx context.Context, url string, options Download
 
 		var result DownloadResult
 		var lastProgress *DownloadProgress
+		var videoTitle string
+
+		// 首先获取视频标题（在下载前）
+		// 使用 --encoding UTF-8 强制输出 UTF-8 编码，避免 Windows GBK 乱码
+		titleCmd := exec.CommandContext(ctx, e.execPath, "--encoding", "UTF-8", "--print", "title", url)
+		titleOutput, err := titleCmd.Output()
+		if err == nil {
+			videoTitle = strings.TrimSpace(string(titleOutput))
+		}
 
 		// 构建 yt-dlp 命令参数
 		args := []string{
 			"--no-color",
 			"--newline",
 			"--progress",
+			"--encoding", "UTF-8", // 强制使用 UTF-8 编码输出，避免 Windows 下 GBK 乱码
 		}
 
 		// 输出目录和格式
 		outputTemplate := ""
 		if options.OutputDir != "" {
-			outputTemplate = filepath.Join(options.OutputDir, "%(title)s.%(ext)s")
+			// 如果提供了 TaskID，使用 task_id.mp4 作为文件名（避免中文乱码）
+			if options.TaskID != "" {
+				outputTemplate = filepath.Join(options.OutputDir, options.TaskID+".%(ext)s")
+			} else {
+				outputTemplate = filepath.Join(options.OutputDir, "%(title)s.%(ext)s")
+			}
 			args = append(args, "-o", outputTemplate)
 		} else {
-			args = append(args, "-o", "%(title)s.%(ext)s")
+			if options.TaskID != "" {
+				args = append(args, "-o", options.TaskID+".%(ext)s")
+			} else {
+				args = append(args, "-o", "%(title)s.%(ext)s")
+			}
 		}
 
 		// 画质选择
@@ -277,7 +296,7 @@ func (e *YtdlpEngine) Download(ctx context.Context, url string, options Download
 		// 等待命令完成
 		err = cmd.Wait()
 
-		// 发送最终进度（包含文件路径）
+		// 发送最终进度（包含文件路径和标题）
 		if lastProgress != nil {
 			if lastProgress.Percent >= 100 && lastProgress.FilePath == "" {
 				// 如果下载完成但没有文件路径，尝试从输出目录和标题构建
@@ -292,6 +311,10 @@ func (e *YtdlpEngine) Download(ctx context.Context, url string, options Download
 						}
 					}
 				}
+			}
+			// 设置视频标题
+			if videoTitle != "" {
+				lastProgress.Title = videoTitle
 			}
 			// 确保文件路径是绝对路径
 			if lastProgress.FilePath != "" && !filepath.IsAbs(lastProgress.FilePath) {

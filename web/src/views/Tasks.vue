@@ -304,18 +304,29 @@ async function deleteTask(taskId: string) {
     			throw new Error(error.error || `HTTP ${response.status}`)
     		}
 
-    		// 获取文件名
+    		// 获取文件名：优先从 content-disposition 提取，如果失败使用默认名
     		const disposition = response.headers.get('Content-Disposition')
-    		const filename = disposition
-    			? disposition.split('filename=')[1]?.replace(/"/g, '')
-    			: `【教学引用】${taskId}.mp4`
+    		let filename = `【教学引用】${taskId}.mp4`
+    		if (disposition) {
+    		  // 尝试匹配 filename*=UTF-8'' (更标准)
+    		  const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i)
+    		  if (utf8Match && utf8Match[1]) {
+    		    filename = decodeURIComponent(utf8Match[1])
+    		  } else {
+    		    // 降级匹配普通 filename=
+    		    const normalMatch = disposition.match(/filename="?([^";\n]+)"?/i)
+    		    if (normalMatch && normalMatch[1]) {
+    		      filename = decodeURIComponent(normalMatch[1])
+    		    }
+    		  }
+    		}
 
     		// 创建 Blob 并触发下载
     		const blob = await response.blob()
     		const url = window.URL.createObjectURL(blob)
     		const a = document.createElement('a')
     		a.href = url
-    		a.download = filename || `【教学引用】${taskId}.mp4`
+    		a.download = filename
     		document.body.appendChild(a)
     		a.click()
     		document.body.removeChild(a)

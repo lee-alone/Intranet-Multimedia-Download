@@ -91,11 +91,12 @@ type Task struct {
 	Progress    DownloadProgress
 	Engine      string
 	BatchID     string
+	Title       string    // 视频标题
+	FilePath    string    // 文件路径
 	CreatedAt   time.Time
 	StartedAt   time.Time
 	CompletedAt time.Time
 	Error       error
-	FilePath    string
 	mu          sync.RWMutex
 }
 
@@ -287,6 +288,10 @@ func (s *TaskScheduler) executeTask(task *Task) {
 	for p := range progressChan {
 		lastProgress = p
 		task.SetProgress(p)
+		// 同步标题信息
+		if p.Title != "" {
+			task.Title = p.Title
+		}
 		s.notifyTaskUpdate(task)
 		if p.Status != "" && (p.Status == "error" || containsIgnoreCase(p.Status, "error")) {
 			hasError = true
@@ -299,8 +304,11 @@ func (s *TaskScheduler) executeTask(task *Task) {
 		// 先转换到 Merging 状态，然后再转换到 Completed
 		task.TransitionStatus(TaskStatusMerging)
 		s.notifyTaskUpdate(task)
-		// 使用 DownloadProgress 中的 FilePath 字段
+		// 使用 DownloadProgress 中的 FilePath 和 Title 字段
 		task.FilePath = lastProgress.FilePath
+		if lastProgress.Title != "" {
+			task.Title = lastProgress.Title
+		}
 		task.CompletedAt = time.Now()
 		task.TransitionStatus(TaskStatusCompleted)
 		s.notifyTaskUpdate(task)

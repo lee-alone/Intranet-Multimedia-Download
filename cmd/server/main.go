@@ -18,12 +18,8 @@ import (
 )
 
 func main() {
-	// 获取程序运行目录
-	execPath, err := os.Executable()
-	if err != nil {
-		log.Fatalf("Failed to get executable path: %v", err)
-	}
-	execDir := filepath.Dir(execPath)
+	// 获取程序根目录（基于 os.Executable()，不受 CWD 影响）
+	execDir := config.GetBaseDir()
 	log.Printf("Program running directory: %s", execDir)
 
 	// 加载配置
@@ -64,14 +60,13 @@ func main() {
 		log.Println("默认管理员账号功能已禁用")
 	}
 
-	// 确保下载目录存在（相对于程序运行目录）
+	// 确保下载目录和临时目录存在（相对于程序根目录）
 	downloadDir := filepath.Join(execDir, "downloads")
 	if err := os.MkdirAll(downloadDir, 0755); err != nil {
 		log.Fatalf("Failed to create downloads directory: %v", err)
 	}
 	log.Printf("Downloads directory: %s", downloadDir)
 
-	// 确保临时目录存在
 	tempDir := filepath.Join(execDir, "temp")
 	if err := os.MkdirAll(tempDir, 0755); err != nil {
 		log.Fatalf("Failed to create temp directory: %v", err)
@@ -83,7 +78,7 @@ func main() {
 	schedulerConfig.MaxConcurrent = cfg.Download.Concurrent
 	scheduler := engine.NewTaskScheduler(nil, schedulerConfig)
 
-	// 创建下载引擎（使用相对于程序运行目录的路径）
+	// 创建下载引擎（使用相对于程序根目录的路径）
 	ytdlp := engine.NewYtdlpEngine(engine.YtdlpConfig{
 		ExecPath:   filepath.Join(execDir, "runtime", "yt-dlp.exe"),
 		OutputDir:  downloadDir,
@@ -105,8 +100,8 @@ func main() {
 	// 将引擎注入调度器
 	scheduler.SetEngine(engineWrapper)
 
-	// 创建服务器
-	srv, err := server.New(cfg, db, scheduler)
+	// 创建服务器（传入 downloadDir 用于 TaskHandler）
+	srv, err := server.New(cfg, db, scheduler, downloadDir)
 	if err != nil {
 		log.Fatalf("Failed to create server: %v", err)
 	}
