@@ -22,18 +22,18 @@ import (
 func TestProgressHub_Subscribe(t *testing.T) {
 	hub := GetProgressHub()
 
-	// 测试订阅
-	ch := hub.Subscribe()
-	if ch == nil {
-		t.Error("Subscribe 返回的通道不应为 nil")
+	// 测试订阅（使用新的 API）
+	client := hub.Subscribe(1, "task-123", "")
+	if client == nil {
+		t.Error("Subscribe 返回的客户端不应为 nil")
 	}
 
 	// 测试取消订阅
-	hub.Unsubscribe(ch)
+	hub.Unsubscribe(client)
 
 	// 确保通道已关闭
 	select {
-	case _, ok := <-ch:
+	case _, ok := <-client.send:
 		if ok {
 			t.Error("取消订阅后通道应该关闭")
 		}
@@ -46,13 +46,13 @@ func TestProgressHub_Subscribe(t *testing.T) {
 func TestProgressHub_Unsubscribe_DoubleClose(t *testing.T) {
 	hub := GetProgressHub()
 
-	ch := hub.Subscribe()
-	if ch == nil {
-		t.Fatal("Subscribe 返回的通道不应为 nil")
+	client := hub.Subscribe(1, "task-456", "")
+	if client == nil {
+		t.Fatal("Subscribe 返回的客户端不应为 nil")
 	}
 
 	// 第一次取消订阅
-	hub.Unsubscribe(ch)
+	hub.Unsubscribe(client)
 
 	// 第二次取消订阅（不应 panic）
 	defer func() {
@@ -60,21 +60,21 @@ func TestProgressHub_Unsubscribe_DoubleClose(t *testing.T) {
 			t.Errorf("重复调用 Unsubscribe 导致 panic: %v", r)
 		}
 	}()
-	hub.Unsubscribe(ch)
+	hub.Unsubscribe(client)
 }
 
 // TestProgressHub_Broadcast 测试广播功能
 func TestProgressHub_Broadcast(t *testing.T) {
 	hub := GetProgressHub()
 
-	ch := hub.Subscribe()
-	defer hub.Unsubscribe(ch)
+	client := hub.Subscribe(1, "task-789", "")
+	defer hub.Unsubscribe(client)
 
 	// 发送测试消息
 	msg := WSMessage{
 		Type:      "test",
-		TaskID:    "task-123",
-		BatchID:   "batch-456",
+		TaskID:    "task-789",
+		BatchID:   "",
 		Status:    "downloading",
 		Progress:  50.0,
 		Message:   "测试消息",
@@ -82,11 +82,11 @@ func TestProgressHub_Broadcast(t *testing.T) {
 	}
 
 	// 广播消息
-	hub.BroadcastToTask("task-123", msg)
+	hub.BroadcastToTask("task-789", msg)
 
 	// 接收消息
 	select {
-	case received := <-ch:
+	case received := <-client.send:
 		if received.Type != msg.Type {
 			t.Errorf("期望消息类型 %s, 得到 %s", msg.Type, received.Type)
 		}
@@ -405,14 +405,14 @@ func TestProgressHub_Cleanup(t *testing.T) {
 	hub := GetProgressHub()
 
 	// 创建多个订阅
-	channels := make([]chan WSMessage, 5)
+	clients := make([]*Client, 5)
 	for i := 0; i < 5; i++ {
-		channels[i] = hub.Subscribe()
+		clients[i] = hub.Subscribe(i+1, "", "")
 	}
 
 	// 取消部分订阅
 	for i := 0; i < 3; i++ {
-		hub.Unsubscribe(channels[i])
+		hub.Unsubscribe(clients[i])
 	}
 
 	// 验证剩余订阅数量
@@ -520,8 +520,8 @@ func TestProgressHub_Concurrent(t *testing.T) {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			ch := hub.Subscribe()
-			defer hub.Unsubscribe(ch)
+			client := hub.Subscribe(id, "task-concurrent", "")
+			defer hub.Unsubscribe(client)
 
 			// 发送消息
 			for j := 0; j < 10; j++ {

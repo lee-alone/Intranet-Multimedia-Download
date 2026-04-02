@@ -1,8 +1,6 @@
 package handler
 
 import (
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -183,19 +181,4 @@ func TestDownloadFile_Incomplete(t *testing.T) {
 	t.Skip("需要完整的数据库和认证环境，在集成测试中执行")
 }
 
-// 辅助函数：创建测试请求
-func createTestRequest(method, url string, headers map[string]string) *http.Request {
-	req := httptest.NewRequest(method, url, nil)
-	for key, value := range headers {
-		req.Header.Set(key, value)
-	}
-	return req
-}
-
-// 辅助函数：验证响应状态码
-func checkStatus(t *testing.T, expected, actual int) {
-	t.Helper()
-	if expected != actual {
-		t.Errorf("Expected status %d, got %d", expected, actual)
-	}
-}
+// 辅助函数已移除 - 如需要请使用 task_test.go 中的辅助函数

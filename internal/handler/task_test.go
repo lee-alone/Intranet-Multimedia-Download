@@ -152,7 +152,7 @@ func setupTaskTest(t *testing.T) *testTaskSetup {
 	}
 
 	// 创建处理器
-	taskHandler := NewTaskHandler(db, scheduler, jwtMgr, whitelistMgr, auditLogger)
+	taskHandler := NewTaskHandler(db, scheduler, jwtMgr, whitelistMgr, auditLogger, tmpDir)
 
 	cleanup := func() {
 		scheduler.Shutdown()
