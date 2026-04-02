@@ -22,9 +22,13 @@ async function checkMFAStatus() {
   try {
     const response = await get('/mfa/status')
     if (response.data) {
-      mfaEnabled.value = (response.data as any).mfaEnabled || false
+      const data = response.data as any
+      // 兼容蛇形命名和驼峰命名
+      mfaEnabled.value = data.mfa_enabled !== undefined ? data.mfa_enabled : (data.mfaEnabled || false)
       if (mfaEnabled.value) {
         success.value = 'MFA 已启用'
+        // 同步到 localStorage
+        localStorage.setItem('mfaEnabled', 'true')
       }
     }
   } catch (e: any) {
@@ -85,6 +89,8 @@ async function verifyMFA() {
         showQRCode.value = false
         success.value = 'MFA 启用成功'
         verificationCode.value = ''
+        // 同步到 localStorage，供路由守卫使用
+        localStorage.setItem('mfaEnabled', 'true')
       } else {
         error.value = data.message || '验证码错误'
       }
@@ -121,6 +127,8 @@ async function disableMFA() {
         mfaEnabled.value = false
         verificationCode.value = ''
         success.value = 'MFA 已禁用'
+        // 同步到 localStorage，供路由守卫使用
+        localStorage.removeItem('mfaEnabled')
       } else {
         error.value = data.message || '禁用失败'
       }

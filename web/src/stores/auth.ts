@@ -198,9 +198,18 @@ export const useAuthStore = defineStore('auth', () => {
     try {
       const response = await get<User>('/user/me')
       if (response.data) {
-        user.value = response.data
+        // 后端返回 mfa_enabled（蛇形命名），需要转换为 mfaEnabled（驼峰命名）
+        const userData = response.data as any
+        const mfaEnabled = userData.mfa_enabled !== undefined ? userData.mfa_enabled : userData.mfaEnabled
+        user.value = {
+          id: userData.id,
+          username: userData.username,
+          email: userData.email,
+          role: userData.role,
+          mfaEnabled: mfaEnabled
+        }
         // 同步 MFA 状态到 localStorage（供路由守卫使用）
-        if (response.data.mfaEnabled) {
+        if (mfaEnabled) {
           localStorage.setItem('mfaEnabled', 'true')
         } else {
           localStorage.removeItem('mfaEnabled')

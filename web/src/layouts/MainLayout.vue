@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
+const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
 const sidebarOpen = ref(true)
@@ -35,6 +36,23 @@ const menuItems = [
   { name: '新建任务', path: '/tasks/new', icon: 'plus' },
   { name: '审计日志', path: '/audit', icon: 'shield' },
 ]
+
+// 使用 computed 确保响应式更新，避免快速点击时的竞态条件
+const activePath = computed(() => route.path)
+
+// 判断菜单项是否应该高亮
+function isActive(itemPath: string): boolean {
+  const currentPath = activePath.value
+  // 精确匹配：仪表盘和审计日志
+  if (itemPath === '/' || itemPath === '/audit' || itemPath === '/tasks/new') {
+    return currentPath === itemPath
+  }
+  // 任务列表：匹配 /tasks 但不包括 /tasks/new
+  if (itemPath === '/tasks') {
+    return currentPath === '/tasks'
+  }
+  return currentPath === itemPath
+}
 
 // SVG 图标组件
 const icons: Record<string, any> = {
@@ -78,13 +96,13 @@ function toggleSidebar() {
     <!-- 侧边栏 -->
     <aside
       :class="[
-        'bg-gray-900 text-white transition-all duration-300 fixed md:relative z-30 h-full',
+        'bg-gray-900 text-white transition-all duration-300 fixed md:relative z-30 h-full overflow-y-auto overflow-x-hidden',
         sidebarOpen ? 'w-64' : 'w-0 md:w-20',
         isMobile && !sidebarOpen ? 'hidden md:block' : ''
       ]"
     >
       <!-- Logo 区域 -->
-      <div class="h-16 flex items-center justify-center border-b border-gray-800 overflow-hidden whitespace-nowrap">
+      <div class="h-16 flex items-center justify-center border-b border-gray-800 overflow-hidden whitespace-nowrap flex-shrink-0">
         <div class="flex items-center space-x-2">
           <div class="w-8 h-8 bg-primary-600 rounded-lg flex items-center justify-center flex-shrink-0">
             <span class="text-white font-bold text-sm">RC</span>
@@ -99,13 +117,13 @@ function toggleSidebar() {
       </div>
 
       <!-- 导航菜单 -->
-      <nav class="mt-4 px-2">
+      <nav class="mt-4 px-2 pb-20">
         <router-link
           v-for="item in menuItems"
           :key="item.path"
           :to="item.path"
-          class="flex items-center px-3 py-3 mb-1 text-gray-400 hover:bg-gray-800 hover:text-white rounded-lg transition-colors group"
-          active-class="bg-primary-600 text-white"
+          class="flex items-center px-3 py-3 mb-1 text-gray-400 hover:bg-gray-800 hover:text-white rounded-lg transition-colors group outline-none border-none relative z-10"
+          :class="{ 'bg-primary-600 text-white': isActive(item.path) }"
         >
           <!-- SVG 图标 -->
           <span class="w-6 h-6 flex items-center justify-center flex-shrink-0">
@@ -121,7 +139,7 @@ function toggleSidebar() {
           </span>
           <span
             v-if="sidebarOpen"
-            class="ml-3 whitespace-nowrap transition-opacity duration-300"
+            class="ml-3 whitespace-nowrap transition-opacity duration-300 select-none pointer-events-none"
           >
             {{ item.name }}
           </span>
@@ -129,7 +147,7 @@ function toggleSidebar() {
       </nav>
 
       <!-- 底部信息 -->
-      <div class="absolute bottom-0 left-0 right-0 p-4 border-t border-gray-800">
+      <div class="absolute bottom-0 left-0 right-0 p-4 border-t border-gray-800 bg-gray-900 flex-shrink-0">
         <div v-if="sidebarOpen" class="text-xs text-gray-500 text-center">
           <p>校园资源采集系统</p>
           <p class="mt-1">v4.0</p>
