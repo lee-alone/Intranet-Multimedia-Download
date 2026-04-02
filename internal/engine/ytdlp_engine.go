@@ -155,12 +155,34 @@ func (e *YtdlpEngine) Download(ctx context.Context, url string, options Download
 		}
 
 		// 画质选择
-		// 注意：不要使用 "-f best"，因为某些网站（如Bilibili）没有预合并的best格式
-		// 不指定格式时，yt-dlp会自动选择最佳视频+音频并合并
-		if options.Quality != "" && options.Quality != "best" {
-			args = append(args, "-f", "bestvideo[height<="+options.Quality+"]+bestaudio/best")
+		// 注意：中文网站（Bilibili、爱奇艺、优酷等）的视频格式选择需要特别处理
+		// 使用更精确的格式选择器，优先选择高码率视频
+
+		if options.Quality == "" || options.Quality == "best" {
+			// 最高画质：优先选择最佳视频+最佳音频，并合并
+			// 格式选择器说明：
+			// 1. bestvideo*+bestaudio/best - 选择最佳视频（任意编码）+最佳音频，回退到最佳预合并格式
+			// 2. 对于Bilibili等网站，需要确保选择的是真正的最高画质
+			args = append(args, "-f", "bestvideo*+bestaudio/best")
+		} else {
+			// 指定分辨率：使用更智能的格式选择
+			// 格式选择器说明：
+			// 1. bestvideo[height<=N][vcodec!=none]+bestaudio - 选择指定分辨率以下的最佳视频（有视频编码）+最佳音频
+			// 2. 如果找不到，回退到最佳预合并格式
+			// 3. 使用 vcodec!=none 过滤掉纯音频格式
+			height := options.Quality
+			// 移除可能的 'p' 后缀（如 "1080p" -> "1080"）
+			height = strings.TrimSuffix(height, "p")
+			args = append(args, "-f", "bestvideo[height<="+height+"][vcodec!=none]+bestaudio/best[height<="+height+"]/best")
 		}
-		// 如果 Quality 为空或 "best"，不添加 -f 参数，让 yt-dlp 自动选择最佳格式
+
+		// 针对中文网站的优化设置
+		// Bilibili: 使用 extractor-args 确保获取最高画质
+		if strings.Contains(strings.ToLower(url), "bilibili.com") || strings.Contains(strings.ToLower(url), "b23.tv") {
+			// Bilibili 需要额外的参数来获取高画质
+			// --extractor-args bilibili:prefer_multi_flv=true 可以获取更高画质
+			args = append(args, "--extractor-args", "bilibili:prefer_multi_flv=true")
+		}
 
 		// 超时设置
 		if options.Timeout > 0 {
@@ -168,6 +190,8 @@ func (e *YtdlpEngine) Download(ctx context.Context, url string, options Download
 		}
 
 		// Cookie 文件
+		// 注意：对于Bilibili等网站，登录Cookie是获取最高画质的必要条件
+		// 建议用户在配置中提供有效的Cookie文件
 		if options.CookieFile != "" {
 			args = append(args, "--cookies", options.CookieFile)
 		}
@@ -304,12 +328,12 @@ func (e *YtdlpEngine) Download(ctx context.Context, url string, options Download
 			dir := filepath.Dir(lastProgress.FilePath)
 			baseName := filepath.Base(lastProgress.FilePath)
 			ext := filepath.Ext(baseName)
-			
+
 			// 如果文件名不是 TaskID 开头，则重命名
 			if !strings.HasPrefix(baseName, options.TaskID) {
 				newFileName := options.TaskID + ext
 				newFilePath := filepath.Join(dir, newFileName)
-				
+
 				// 如果新文件不存在，则重命名
 				if _, err := os.Stat(newFilePath); os.IsNotExist(err) {
 					if err := os.Rename(lastProgress.FilePath, newFilePath); err == nil {
@@ -337,7 +361,7 @@ func (e *YtdlpEngine) Download(ctx context.Context, url string, options Download
 					}
 				}
 			}
-			
+
 			// 如果还是没有文件路径，尝试使用 yt-dlp 获取文件名
 			if lastProgress.Percent >= 100 && lastProgress.FilePath == "" {
 				if options.OutputDir != "" {
@@ -352,7 +376,7 @@ func (e *YtdlpEngine) Download(ctx context.Context, url string, options Download
 					}
 				}
 			}
-			
+
 			// 设置视频标题
 			if videoTitle != "" {
 				lastProgress.Title = videoTitle
