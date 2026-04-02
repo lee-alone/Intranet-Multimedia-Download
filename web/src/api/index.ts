@@ -143,7 +143,7 @@ export async function del<T>(url: string, config?: AxiosRequestConfig): Promise<
 
 // WebSocket 连接工具函数（带 token 认证）
 export function createWebSocketUrl(path: string): string {
-  const token = localStorage.getItem('token')
+  const token = localStorage.getItem('token') || ''
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
   const host = window.location.host || 'localhost:8080'
 
@@ -158,4 +158,7 @@ export function createAuthenticatedWebSocket(path: string): WebSocket {
   return new WebSocket(wsUrl)
 }
 
-export default api
+// 检查是否有有效的 token
+export function hasValidToken(): boolean {
+  return !!localStorage.getItem('token')
+}

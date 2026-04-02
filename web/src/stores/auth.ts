@@ -175,7 +175,7 @@ export const useAuthStore = defineStore('auth', () => {
   // 登出
   async function logout(): Promise<void> {
     try {
-      await post('/auth/logout')
+      await post('/logout')
     } catch (e) {
       // 忽略登出错误
     } finally {

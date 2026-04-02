@@ -485,6 +485,29 @@ func (s *Server) registerRoutes() {
 	// 用户信息路由
 	s.mux.Handle("/api/v1/user/me", authMiddleware(http.HandlerFunc(authHandler.GetCurrentUser)))
 
+	// 用户管理路由（仅管理员）
+	s.mux.Handle("/api/v1/users", authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			// GET: 获取用户列表
+			authHandler.GetUsers(w, r)
+		case http.MethodDelete:
+			// DELETE: 删除用户
+			authHandler.DeleteUser(w, r)
+		case http.MethodPut:
+			// PUT: 更新用户信息
+			authHandler.UpdateUser(w, r)
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	})))
+
+	// 修改密码路由
+	s.mux.Handle("/api/v1/user/change-password", authMiddleware(http.HandlerFunc(authHandler.ChangePassword)))
+
+	// 管理员重置密码路由
+	s.mux.Handle("/api/v1/admin/users/reset-password", authMiddleware(http.HandlerFunc(authHandler.AdminChangePassword)))
+
 	// 任务创建和列表路由
 	s.mux.Handle("/api/v1/tasks", authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {

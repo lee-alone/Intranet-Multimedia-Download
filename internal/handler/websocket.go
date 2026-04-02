@@ -91,7 +91,8 @@ func (h *ProgressHub) run() {
 				h.batchSubs[client.batchID][client] = true
 			}
 			h.mu.Unlock()
-			log.Printf("Client registered: user=%d, task=%s, batch=%s", client.userID, client.taskID, client.batchID)
+			// 降低日志级别，减少控制台输出
+			log.Printf("[DEBUG] Client registered: user=%d, task=%s, batch=%s", client.userID, client.taskID, client.batchID)
 
 		case client := <-h.unregister:
 			h.mu.Lock()
@@ -190,7 +191,8 @@ func (h *ProgressHub) unregisterClientInternal(client *Client) {
 		}
 	}
 
-	log.Printf("Client unregistered: user=%d, task=%s, batch=%s", client.userID, client.taskID, client.batchID)
+	// 降低日志级别，减少控制台输出
+	log.Printf("[DEBUG] Client unregistered: user=%d, task=%s, batch=%s", client.userID, client.taskID, client.batchID)
 }
 
 // BroadcastToTask 向特定任务广播消息
@@ -501,7 +503,8 @@ func (h *ProgressHub) Subscribe(userID int, taskID, batchID string) *Client {
 		h.batchSubs[batchID][client] = true
 	}
 
-	log.Printf("SSE client subscribed: user=%d, task=%s, batch=%s", userID, taskID, batchID)
+	// 降低日志级别，减少控制台输出
+	log.Printf("[DEBUG] SSE client subscribed: user=%d, task=%s, batch=%s", userID, taskID, batchID)
 	return client
 }
 

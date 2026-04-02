@@ -17,6 +17,8 @@ const viewComponents: Record<string, () => Promise<Component>> = {
   Tasks: () => import('@/views/Tasks.vue'),
   NewTask: () => import('@/views/NewTask.vue'),
   Audit: () => import('@/views/Audit.vue'),
+  Users: () => import('@/views/Users.vue'),
+  Profile: () => import('@/views/Profile.vue'),
   NotFound: () => import('@/views/NotFound.vue'),
 }
 
@@ -82,6 +84,22 @@ const routes: RouteRecordRaw[] = [
         component: lazyLoad('Audit'),
         meta: {
           title: '审计日志',
+        } as CustomRouteMeta,
+      },
+      {
+        path: 'users',
+        name: 'Users',
+        component: lazyLoad('Users'),
+        meta: {
+          title: '用户管理',
+        } as CustomRouteMeta,
+      },
+      {
+        path: 'profile',
+        name: 'Profile',
+        component: lazyLoad('Profile'),
+        meta: {
+          title: '个人中心',
         } as CustomRouteMeta,
       },
     ],

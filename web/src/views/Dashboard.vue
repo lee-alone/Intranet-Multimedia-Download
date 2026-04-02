@@ -83,10 +83,17 @@ async function fetchRecentTasks() {
 
 // 连接 WebSocket 获取实时更新
 function connectWebSocket() {
+  // 检查是否有有效的 token，没有则不连接
+  const token = localStorage.getItem('token')
+  if (!token) {
+    console.log('WebSocket 连接跳过：未登录')
+    return
+  }
+
   try {
     // 使用 /api/v1/ws 进行 WebSocket 连接，订阅所有任务更新
     const socket = createAuthenticatedWebSocket('/api/v1/ws')
-    
+
     socket.onopen = () => {
       console.log('Dashboard WebSocket 连接成功')
     }

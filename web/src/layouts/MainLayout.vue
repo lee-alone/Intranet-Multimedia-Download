@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
@@ -35,7 +35,20 @@ const menuItems = [
   { name: '任务列表', path: '/tasks', icon: 'list' },
   { name: '新建任务', path: '/tasks/new', icon: 'plus' },
   { name: '审计日志', path: '/audit', icon: 'shield' },
+  { name: '用户管理', path: '/users', icon: 'users', adminOnly: true },
+  { name: '个人中心', path: '/profile', icon: 'user' },
 ]
+
+// 根据用户角色过滤菜单项
+const filteredMenuItems = computed(() => {
+  const isAdmin = authStore.user?.role === 'admin'
+  return menuItems.filter(item => {
+    if (item.adminOnly && !isAdmin) {
+      return false
+    }
+    return true
+  })
+})
 
 // 判断菜单项是否应该高亮
 function isActive(itemPath: string): boolean {
@@ -68,6 +81,14 @@ const icons: Record<string, any> = {
   shield: {
     viewBox: '0 0 24 24',
     path: 'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z'
+  },
+  users: {
+    viewBox: '0 0 24 24',
+    path: 'M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z'
+  },
+  user: {
+    viewBox: '0 0 24 24',
+    path: 'M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z'
   },
 }
 
@@ -116,7 +137,7 @@ function toggleSidebar() {
       <!-- 导航菜单 -->
       <nav class="mt-4 px-2 pb-20">
         <router-link
-          v-for="item in menuItems"
+          v-for="item in filteredMenuItems"
           :key="item.path"
           :to="item.path"
           class="flex items-center px-3 py-3 mb-1 text-gray-400 hover:bg-gray-800 hover:text-white rounded-lg transition-colors group outline-none border-none relative z-10"
