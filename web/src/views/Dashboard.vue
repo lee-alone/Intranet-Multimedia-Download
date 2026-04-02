@@ -58,15 +58,20 @@ async function fetchStats() {
 async function fetchRecentTasks() {
   try {
     const response = await get<Task[]>('/tasks?limit=5')
+    console.log('Dashboard fetchRecentTasks response:', response)
     // 兼容 code=0 或 success=true 两种格式
-    if ((response.code === 0 || response.success === true) && response.data) {
-      recentTasks.value = response.data
+    // response 是 ApiResponse 类型，data 字段是实际的任务数组
+    if (response.success === true && response.data) {
+      recentTasks.value = response.data as any
+    } else if (response.code === 0 && response.data) {
+      recentTasks.value = response.data as any
     } else if (Array.isArray(response)) {
       // 如果响应直接是数组
       recentTasks.value = response
     } else {
       recentTasks.value = []
     }
+    console.log('recentTasks:', recentTasks.value)
   } catch (e: any) {
     console.error('获取最近任务失败:', e)
     // 失败时显示空列表

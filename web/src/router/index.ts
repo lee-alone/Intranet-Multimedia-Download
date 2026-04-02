@@ -6,12 +6,10 @@ import type { Component } from 'vue'
 interface CustomRouteMeta extends RouteMeta {
   requiresAuth?: boolean
   requiresGuest?: boolean
-  requiresMFA?: boolean
   title?: string
 }
 
 // 组件懒加载工厂函数（带类型）
-// 使用静态导入以支持 Vite 构建
 const viewComponents: Record<string, () => Promise<Component>> = {
   Login: () => import('@/views/Login.vue'),
   Register: () => import('@/views/Register.vue'),
@@ -19,7 +17,6 @@ const viewComponents: Record<string, () => Promise<Component>> = {
   Tasks: () => import('@/views/Tasks.vue'),
   NewTask: () => import('@/views/NewTask.vue'),
   Audit: () => import('@/views/Audit.vue'),
-  MfaBind: () => import('@/views/MfaBind.vue'),
   NotFound: () => import('@/views/NotFound.vue'),
 }
 
@@ -79,23 +76,14 @@ const routes: RouteRecordRaw[] = [
           title: '新建任务',
         } as CustomRouteMeta,
       },
-     {
-       path: 'audit',
-       name: 'Audit',
-       component: lazyLoad('Audit'),
-       meta: {
-         requiresMFA: true,
-         title: '审计日志',
-       } as CustomRouteMeta,
-     },
-     {
-       path: 'mfa-bind',
-       name: 'MfaBind',
-       component: lazyLoad('MfaBind'),
-       meta: {
-         title: 'MFA 绑定',
-       } as CustomRouteMeta,
-     },
+      {
+        path: 'audit',
+        name: 'Audit',
+        component: lazyLoad('Audit'),
+        meta: {
+          title: '审计日志',
+        } as CustomRouteMeta,
+      },
     ],
   },
   {
@@ -124,7 +112,7 @@ router.beforeEach((to, _from, next) => {
     document.title = `${meta.title} - 校园资源采集系统`
   }
 
-  // 需要认证的路由
+  // 需要认证但未登录 → 跳转登录页
   if (meta.requiresAuth && !isAuthenticated) {
     next({
       name: 'Login',
@@ -134,24 +122,13 @@ router.beforeEach((to, _from, next) => {
     return
   }
 
-  // 已登录用户访问登录页或注册页，重定向到首页
-  // 注意：只在确实有 token 时才重定向，避免循环
+  // 已登录访问登录/注册页 → 跳转首页
   if ((to.name === 'Login' || to.name === 'Register') && isAuthenticated) {
     next({ name: 'Dashboard', replace: true })
     return
   }
 
- // 检查 MFA 要求
- if (meta.requiresMFA) {
-   const userMfaEnabled = localStorage.getItem('mfaEnabled')
-   if (!userMfaEnabled) {
-     // 跳转到 MFA 绑定页面
-     next({ name: 'MfaBind', query: { redirect: to.fullPath } })
-     return
-   }
- }
-
- next()
+  next()
 })
 
 // 路由后置钩子 - 页面滚动到顶部

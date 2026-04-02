@@ -33,8 +33,8 @@ func InitDefaultAdmin(db *sql.DB, username, password, email string) error {
 
 	// 插入管理员账号
 	result, err := db.Exec(`
-		INSERT INTO users (username, password_hash, email, role, mfa_enabled, is_initialized)
-		VALUES (?, ?, ?, 'admin', 0, 1)
+		INSERT INTO users (username, password_hash, email, role, is_initialized)
+		VALUES (?, ?, ?, 'admin', 1)
 	`, username, string(hashedPassword), email)
 	if err != nil {
 		return fmt.Errorf("failed to insert admin user: %w", err)

@@ -11,7 +11,6 @@ export interface User {
   username: string
   email: string
   role: string
-  mfaEnabled: boolean
 }
 
 // 登录请求参数
@@ -198,25 +197,18 @@ export const useAuthStore = defineStore('auth', () => {
     try {
       const response = await get<User>('/user/me')
       if (response.data) {
-        // 后端返回 mfa_enabled（蛇形命名），需要转换为 mfaEnabled（驼峰命名）
-        const userData = response.data as any
-        const mfaEnabled = userData.mfa_enabled !== undefined ? userData.mfa_enabled : userData.mfaEnabled
+        // 后端返回的格式是 { success: true, data: { user info } }
+        const userData = (response.data as any).data || (response.data as any)
         user.value = {
           id: userData.id,
           username: userData.username,
           email: userData.email,
           role: userData.role,
-          mfaEnabled: mfaEnabled
-        }
-        // 同步 MFA 状态到 localStorage（供路由守卫使用）
-        if (mfaEnabled) {
-          localStorage.setItem('mfaEnabled', 'true')
-        } else {
-          localStorage.removeItem('mfaEnabled')
         }
       }
     } catch (e) {
-      // 忽略错误，由拦截器处理
+      console.error('Failed to fetch user info:', e)
+      throw e
     }
   }
 

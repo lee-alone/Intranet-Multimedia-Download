@@ -9,6 +9,12 @@ import (
 	"time"
 )
 
+// contextKey 是上下文中存储 claims 的键类型（与 handler 包保持一致）
+type contextKey string
+
+// ClaimsContextKey 是上下文中存储 claims 的键（与 handler 包保持一致）
+const ClaimsContextKey contextKey = "claims"
+
 // AgreementManager 协议管理器
 type AgreementManager struct {
 	db *sql.DB
@@ -138,7 +144,7 @@ type GetAgreementStatusResponse struct {
 // GetAgreementStatusHandler 获取协议状态处理器
 func (am *AgreementManager) GetAgreementStatusHandler(w http.ResponseWriter, r *http.Request) {
 	// 从上下文获取用户 ID
-	claims, ok := r.Context().Value("claims").(*Claims)
+	claims, ok := r.Context().Value(ClaimsContextKey).(*Claims)
 	if !ok {
 		writeJSONError(w, http.StatusUnauthorized, "Unauthorized")
 		return
@@ -172,7 +178,7 @@ type AgreeRequest struct {
 // AgreeHandler 同意协议处理器
 func (am *AgreementManager) AgreeHandler(w http.ResponseWriter, r *http.Request) {
 	// 从上下文获取用户 ID
-	claims, ok := r.Context().Value("claims").(*Claims)
+	claims, ok := r.Context().Value(ClaimsContextKey).(*Claims)
 	if !ok {
 		writeJSONError(w, http.StatusUnauthorized, "Unauthorized")
 		return
@@ -234,7 +240,7 @@ func (am *AgreementManager) CheckAgreementMiddleware(excludePaths ...string) fun
 			}
 
 			// 从上下文获取用户 ID
-			claims, ok := r.Context().Value("claims").(*Claims)
+			claims, ok := r.Context().Value(ClaimsContextKey).(*Claims)
 			if !ok {
 				// 未认证用户，跳过检查
 				next.ServeHTTP(w, r)

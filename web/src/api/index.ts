@@ -73,15 +73,20 @@ api.interceptors.response.use(
       case 401:
         // 未授权，清除所有 token
         const oldToken = localStorage.getItem('token')
-        localStorage.removeItem('token')
-        localStorage.removeItem('refreshToken')
-        // 只在有旧 token 且当前不在登录页时跳转
-        if (oldToken && !window.location.pathname.includes('/login') && !window.location.pathname.includes('/register')) {
-          window.location.href = '/login'
+        // 只在有旧 token 时才清除并跳转
+        if (oldToken) {
+          localStorage.removeItem('token')
+          localStorage.removeItem('refreshToken')
+          // 避免在审计日志等页面因 401 循环跳转
+          const currentPath = window.location.pathname
+          if (!currentPath.includes('/login') && !currentPath.includes('/register')) {
+            // 使用 replace 避免循环
+            window.location.replace('/login')
+          }
         }
         break
       case 403:
-        // 禁止访问
+        // 禁止访问（如 MFA 验证失败）
         const forbiddenMsg = getErrorMessage(backendMessage || '禁止访问')
         if (window.toast) {
           window.toast.error(forbiddenMsg)

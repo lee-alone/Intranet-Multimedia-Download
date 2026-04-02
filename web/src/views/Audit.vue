@@ -15,64 +15,23 @@ interface AuditLog {
 }
 
 const logs = ref<AuditLog[]>([])
-const loading = ref(true)
+const loading = ref(false)
 const error = ref('')
-const showMFA = ref(true)
-const mfaCode = ref('')
-const mfaRequired = ref(false)
-const mfaEnabled = ref(false)
 
 onMounted(async () => {
-  await checkMFAStatus()
+  await loadAuditLogs()
 })
 
-async function checkMFAStatus() {
-  loading.value = true
-  try {
-    const response = await get('/mfa/status')
-    const data = response.data as any
-    mfaEnabled.value = data?.mfaEnabled || false
-    
-    if (mfaEnabled.value) {
-      // 已启用 MFA，显示验证界面
-      showMFA.value = true
-      mfaRequired.value = true
-    } else {
-      // 未启用 MFA，提示用户先启用
-      showMFA.value = true
-      mfaRequired.value = false
-    }
-  } catch (e: any) {
-    error.value = '获取 MFA 状态失败'
-    console.error(e)
-  } finally {
-    loading.value = false
-  }
-}
-
-async function verifyMFA() {
-  if (!mfaCode.value || mfaCode.value.length !== 6) {
-    error.value = '请输入 6 位验证码'
-    return
-  }
-
+async function loadAuditLogs() {
   loading.value = true
   error.value = ''
-
   try {
-    const response = await get(`/audit/logs?code=${mfaCode.value}`)
-    if (response.data) {
-      const data = response.data as any
-      if (data.success) {
-        logs.value = data.data || []
-        showMFA.value = false
-      } else {
-        error.value = data.message || '验证失败'
-      }
-    }
+    const response = await get('/audit/logs')
+    // response 是 ApiResponse 类型，直接访问 data 字段
+    logs.value = (response.data as any) || []
   } catch (e: any) {
-    error.value = '验证失败或无权访问'
-    console.error(e)
+    console.error('Failed to load audit logs:', e)
+    error.value = e.response?.data?.message || '加载审计日志失败'
   } finally {
     loading.value = false
   }
@@ -86,8 +45,6 @@ function getActionClass(action: string) {
     error: 'bg-red-100 text-red-800',
     create_task: 'bg-purple-100 text-purple-800',
     cancel_task: 'bg-yellow-100 text-yellow-800',
-    mfa_enable: 'bg-indigo-100 text-indigo-800',
-    mfa_disable: 'bg-pink-100 text-pink-800',
   }
   return classes[action] || 'bg-gray-100 text-gray-800'
 }
@@ -100,8 +57,6 @@ function getActionText(action: string) {
     error: '错误',
     create_task: '创建任务',
     cancel_task: '取消任务',
-    mfa_enable: '启用 MFA',
-    mfa_disable: '禁用 MFA',
   }
   return texts[action] || action
 }
@@ -126,43 +81,8 @@ function formatDetail(detail: string) {
   <div>
     <h1 class="text-2xl font-bold text-gray-900 mb-6">审计日志</h1>
 
-    <!-- MFA 验证弹窗 -->
-    <div v-if="showMFA" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div class="bg-white rounded-lg shadow-xl p-6 max-w-sm w-full mx-4">
-        <h2 class="text-lg font-medium text-gray-900 mb-4">二次验证</h2>
-        
-        <div v-if="!mfaRequired" class="text-center">
-          <p class="text-sm text-gray-600 mb-4">访问审计日志需要先启用 MFA</p>
-          <button
-            @click="$router.push('/mfa-bind')"
-            class="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
-          >
-            前往启用 MFA
-          </button>
-        </div>
-        
-        <template v-else>
-          <p class="text-sm text-gray-600 mb-4">请输入 MFA 验证码以访问审计日志</p>
-          <input
-            v-model="mfaCode"
-            type="text"
-            maxlength="6"
-            class="w-full px-3 py-2 border border-gray-300 rounded-lg text-center text-2xl tracking-widest mb-4"
-            placeholder="000000"
-          />
-          <button
-            @click="verifyMFA"
-            :disabled="loading || mfaCode.length !== 6"
-            class="w-full px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {{ loading ? '验证中...' : '验证' }}
-          </button>
-        </template>
-      </div>
-    </div>
-
     <!-- 错误提示 -->
-    <div v-if="error && !showMFA" class="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+    <div v-if="error" class="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
       <div class="flex items-center">
         <svg class="w-5 h-5 text-red-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -172,7 +92,7 @@ function formatDetail(detail: string) {
     </div>
 
     <!-- 审计日志列表 -->
-    <div v-if="!showMFA" class="bg-white rounded-lg shadow overflow-hidden">
+    <div class="bg-white rounded-lg shadow overflow-hidden">
       <div v-if="loading" class="text-center py-8">
         <svg class="animate-spin h-8 w-8 text-primary-600 mx-auto" fill="none" viewBox="0 0 24 24">
           <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>

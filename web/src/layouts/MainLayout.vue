@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
@@ -37,19 +37,16 @@ const menuItems = [
   { name: '审计日志', path: '/audit', icon: 'shield' },
 ]
 
-// 使用 computed 确保响应式更新，避免快速点击时的竞态条件
-const activePath = computed(() => route.path)
-
 // 判断菜单项是否应该高亮
 function isActive(itemPath: string): boolean {
-  const currentPath = activePath.value
-  // 精确匹配：仪表盘和审计日志
-  if (itemPath === '/' || itemPath === '/audit' || itemPath === '/tasks/new') {
+  const currentPath = route.path
+  // 精确匹配
+  if (itemPath === '/') {
     return currentPath === itemPath
   }
-  // 任务列表：匹配 /tasks 但不包括 /tasks/new
+  // 前缀匹配：任务相关
   if (itemPath === '/tasks') {
-    return currentPath === '/tasks'
+    return currentPath === '/tasks' || currentPath.startsWith('/tasks/')
   }
   return currentPath === itemPath
 }

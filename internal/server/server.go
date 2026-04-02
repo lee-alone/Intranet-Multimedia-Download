@@ -502,12 +502,7 @@ func (s *Server) registerRoutes() {
 	// 任务统计路由
 	s.mux.Handle("/api/v1/tasks/stats", authMiddleware(http.HandlerFunc(taskHandler.GetTaskStats)))
 
-	// MFA 相关路由
-	s.mux.Handle("/api/v1/mfa/generate", authMiddleware(http.HandlerFunc(authHandler.GenerateMFA)))
-	s.mux.Handle("/api/v1/mfa/verify", authMiddleware(http.HandlerFunc(authHandler.VerifyMFA)))
-	s.mux.Handle("/api/v1/mfa/status", authMiddleware(http.HandlerFunc(authHandler.GetMFAStatus)))
-
-	// 审计日志路由
+	// 审计日志路由（移除 MFA 验证）
 	s.mux.Handle("/api/v1/audit/logs", authMiddleware(http.HandlerFunc(authHandler.GetAuditLogs)))
 
 	// 需要认证的路由
@@ -551,11 +546,13 @@ func (s *Server) registerRoutes() {
 		path := r.URL.Path
 		parts := strings.Split(path, "/")
 		// 路径格式：/api/v1/tasks/{id}/download
+		// parts: ["", "api", "v1", "tasks", "{id}", "download"] -> len=6
 		if len(parts) == 6 && parts[5] == "download" && r.Method == http.MethodGet {
 			taskHandler.DownloadFile(w, r)
 			return
 		}
 		// 路径格式：/api/v1/tasks/{id}
+		// parts: ["", "api", "v1", "tasks", "{id}"] -> len=5
 		if len(parts) == 5 && parts[4] != "" {
 			if r.Method == http.MethodDelete {
 				// DELETE 请求：根据任务状态自动判断是取消还是删除
@@ -565,8 +562,10 @@ func (s *Server) registerRoutes() {
 				return
 			}
 		}
-		// 如果是 /api/v1/tasks/ 且是 GET 请求，返回任务列表（处理重定向）
-		if len(parts) == 4 && r.Method == http.MethodGet {
+		// 如果是 /api/v1/tasks 或 /api/v1/tasks/ 且是 GET 请求，返回任务列表
+		// parts: ["", "api", "v1", "tasks"] -> len=4 (不带尾随斜杠)
+		// parts: ["", "api", "v1", "tasks", ""] -> len=5 (带尾随斜杠)
+		if r.Method == http.MethodGet && (len(parts) == 4 || (len(parts) == 5 && parts[4] == "")) {
 			taskHandler.GetTasks(w, r)
 			return
 		}
