@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -131,6 +132,7 @@ func (e *YtdlpEngine) Download(ctx context.Context, url string, options Download
 			"--newline",
 			"--progress",
 			"--encoding", "UTF-8", // 强制使用 UTF-8 编码输出，避免 Windows 下 GBK 乱码
+			"--merge-output-format", "mp4", // 强制合并输出为 mp4 格式
 		}
 
 		// 输出目录和格式
@@ -140,14 +142,15 @@ func (e *YtdlpEngine) Download(ctx context.Context, url string, options Download
 			if options.TaskID != "" {
 				outputTemplate = filepath.Join(options.OutputDir, options.TaskID+".%(ext)s")
 			} else {
-				outputTemplate = filepath.Join(options.OutputDir, "%(title)s.%(ext)s")
+				// 使用 %(id)s 而不是 %(title)s 避免文件名乱码
+				outputTemplate = filepath.Join(options.OutputDir, "%(id)s.%(ext)s")
 			}
 			args = append(args, "-o", outputTemplate)
 		} else {
 			if options.TaskID != "" {
 				args = append(args, "-o", options.TaskID+".%(ext)s")
 			} else {
-				args = append(args, "-o", "%(title)s.%(ext)s")
+				args = append(args, "-o", "%(id)s.%(ext)s")
 			}
 		}
 
@@ -296,10 +299,47 @@ func (e *YtdlpEngine) Download(ctx context.Context, url string, options Download
 		// 等待命令完成
 		err = cmd.Wait()
 
+		// 下载完成后，如果指定了 TaskID 但文件路径不是 TaskID，则重命名文件
+		if options.TaskID != "" && lastProgress != nil && lastProgress.FilePath != "" {
+			dir := filepath.Dir(lastProgress.FilePath)
+			baseName := filepath.Base(lastProgress.FilePath)
+			ext := filepath.Ext(baseName)
+			
+			// 如果文件名不是 TaskID 开头，则重命名
+			if !strings.HasPrefix(baseName, options.TaskID) {
+				newFileName := options.TaskID + ext
+				newFilePath := filepath.Join(dir, newFileName)
+				
+				// 如果新文件不存在，则重命名
+				if _, err := os.Stat(newFilePath); os.IsNotExist(err) {
+					if err := os.Rename(lastProgress.FilePath, newFilePath); err == nil {
+						lastProgress.FilePath = newFilePath
+					}
+				} else if err == nil {
+					// 新文件已存在，删除旧文件
+					os.Remove(lastProgress.FilePath)
+					lastProgress.FilePath = newFilePath
+				}
+			}
+		}
+
 		// 发送最终进度（包含文件路径和标题）
 		if lastProgress != nil {
+			// 如果下载完成但没有文件路径，尝试在输出目录中查找 TaskID 文件
+			if lastProgress.Percent >= 100 && lastProgress.FilePath == "" && options.TaskID != "" && options.OutputDir != "" {
+				// 尝试查找 TaskID.mp4 或其他扩展名
+				videoExts := []string{".mp4", ".mkv", ".webm", ".avi", ".mov", ".flv", ".wmv", ".m4v"}
+				for _, ext := range videoExts {
+					testPath := filepath.Join(options.OutputDir, options.TaskID+ext)
+					if _, err := os.Stat(testPath); err == nil {
+						lastProgress.FilePath = testPath
+						break
+					}
+				}
+			}
+			
+			// 如果还是没有文件路径，尝试使用 yt-dlp 获取文件名
 			if lastProgress.Percent >= 100 && lastProgress.FilePath == "" {
-				// 如果下载完成但没有文件路径，尝试从输出目录和标题构建
 				if options.OutputDir != "" {
 					// 使用 yt-dlp 获取实际文件名
 					cmd := exec.Command(e.execPath, "--simulate", "--print", "filename", url)
@@ -312,6 +352,7 @@ func (e *YtdlpEngine) Download(ctx context.Context, url string, options Download
 					}
 				}
 			}
+			
 			// 设置视频标题
 			if videoTitle != "" {
 				lastProgress.Title = videoTitle
