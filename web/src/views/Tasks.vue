@@ -1,115 +1,36 @@
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount } from 'vue'
-import { get, del } from '@/api'
-
-// 任务类型
-interface Task {
-  id: string
-  url: string
-  status: 'queued' | 'downloading' | 'merging' | 'completed' | 'failed' | 'cancelled'
-  progress: number
-  priority: 'low' | 'normal' | 'high'
-  createdAt: string
-  updatedAt?: string
-  message?: string
-  batchId?: string
-}
-
-// 平滑进度数据
-interface SmoothedProgress {
-  smoothed: number // 加权平滑后的进度
-  history: number[] // 最近几次的进度历史
-  weights: number[] // 权重
-  lastUpdated?: number // 最后更新时间戳
-}
-
-// SSE 已禁用：OfflineMessage 接口已删除
+import { useTaskActions, type Task } from '@/composables/useTaskActions'
+import { useTaskPolling } from '@/composables/useTaskPolling'
+import { getSmoothedProgress, cleanupStaleCache } from '@/composables/useProgressSmoothing'
+import TaskStatusBadge from '@/components/tasks/TaskStatusBadge.vue'
+import TaskProgressBar from '@/components/tasks/TaskProgressBar.vue'
+import TaskActionButtons from '@/components/tasks/TaskActionButtons.vue'
 
 // 状态
 const tasks = ref<Task[]>([])
 const loading = ref(true)
 const error = ref('')
 const showBatchView = ref(false)
-// const eventSource = ref<EventSource | null>(null)  // SSE 已禁用
-// const usePolling = ref(true) // 始终使用轮询模式
-let pollTimer: ReturnType<typeof setInterval> | null = null
-// const reconnectAttempts = ref(0)  // SSE 已禁用
-// const maxReconnectAttempts = 5  // SSE 已禁用
-const lastProgressCache = ref<Map<string, SmoothedProgress>>(new Map()) // 离线缓存
-// const offlineMessages = ref<OfflineMessage[]>([])  // SSE 已禁用
-// const isOffline = ref(false)  // SSE 已禁用
-const cacheCleanupInterval = ref<ReturnType<typeof setInterval> | null>(null) // 缓存清理定时器
 
-// 状态样式映射
-const statusStyles: Record<string, string> = {
-  queued: 'bg-gray-100 text-gray-800',
-  downloading: 'bg-blue-100 text-blue-800',
-  merging: 'bg-purple-100 text-purple-800',
-  completed: 'bg-green-100 text-green-800',
-  failed: 'bg-red-100 text-red-800',
-  cancelled: 'bg-gray-100 text-gray-600',
-}
+// 引入 composables
+const { fetchTasks: apiFetchTasks, handleCancelOrDelete, handleDownload } = useTaskActions()
+const { isPolling, updateSmartPolling } = useTaskPolling(() => fetchTasks())
 
-// 状态文本映射
-const statusTexts: Record<string, string> = {
-  queued: '排队中',
-  downloading: '下载中',
-  merging: '合并中',
-  completed: '已完成',
-  failed: '失败',
-  cancelled: '已取消',
-}
+// 缓存清理定时器
+let cacheCleanupInterval: ReturnType<typeof setInterval> | null = null
 
-// 优先级样式
-const priorityStyles: Record<string, string> = {
-  low: 'bg-gray-100 text-gray-600',
-  normal: 'bg-blue-100 text-blue-600',
-  high: 'bg-red-100 text-red-600',
-}
-
-// 优先级文本
-const priorityTexts: Record<string, string> = {
-  low: '低',
-  normal: '普通',
-  high: '高',
-}
-
-// 获取状态样式
-function getStatusClass(status: string): string {
-  return statusStyles[status] || 'bg-gray-100 text-gray-800'
-}
-
-// 获取状态文本
-function getStatusText(status: string): string {
-  return statusTexts[status] || status
-}
-
-// 获取优先级样式
-function getPriorityClass(priority: string): string {
-  return priorityStyles[priority] || 'bg-gray-100 text-gray-600'
-}
-
-// 获取优先级文本
-function getPriorityText(priority: string): string {
-  return priorityTexts[priority] || priority
-}
-
-// 获取进度条颜色
-function getProgressColor(status: string, progress: number): string {
-  if (status === 'completed') return 'bg-green-500'
-  if (status === 'failed') return 'bg-red-500'
-  if (status === 'downloading' || status === 'merging') return 'bg-blue-500'
-  if (progress > 0) return 'bg-primary-500'
-  return 'bg-gray-400'
-}
-
-// 格式化 URL 显示（截断过长部分）
+/**
+ * 格式化 URL 显示（截断过长部分）
+ */
 function formatUrl(url: string): string {
   if (url.length <= 50) return url
   return url.substring(0, 47) + '...'
 }
 
-// 格式化时间
+/**
+ * 格式化时间
+ */
 function formatTime(dateStr: string): string {
   if (!dateStr) return '-'
   const date = new Date(dateStr)
@@ -122,120 +43,46 @@ function formatTime(dateStr: string): string {
   })
 }
 
-// 清理已完成的缓存（防止内存泄漏）
-function cleanupFinishedTasks() {
-  const now = Date.now()
-  const cache = lastProgressCache.value
-  const completedTaskIds = new Set<string>()
-
-  // 获取所有已完成的任务 ID
-  tasks.value.forEach(task => {
-    if (task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled') {
-      completedTaskIds.add(task.id)
-    }
-  })
-
-  // 清理已完成任务的缓存
-  completedTaskIds.forEach(id => {
-    cache.delete(id)
-  })
-
-  // 清理超过 5 分钟未更新的数据
-  for (const [taskId, data] of cache.entries()) {
-    if (data.lastUpdated && now - data.lastUpdated > 5 * 60 * 1000) {
-      cache.delete(taskId)
-    }
-  }
-}
-
-// 加权平滑算法 - 避免进度跳动
-function smoothProgress(taskId: string, newProgress: number): number {
-  const cache = lastProgressCache.value
-  const defaultWeights = [0.4, 0.3, 0.2, 0.1] // 权重总和为 1
-
-  if (!cache.has(taskId)) {
-    cache.set(taskId, {
-      smoothed: newProgress,
-      history: [newProgress],
-      weights: defaultWeights,
-      lastUpdated: Date.now()
-    })
-    return newProgress
-  }
-
-  const data = cache.get(taskId)!
-  const historySize = data.weights.length
-
-  // 更新历史
-  data.history.push(newProgress)
-  if (data.history.length > historySize) {
-    data.history.shift()
-  }
-  data.lastUpdated = Date.now()
-
-  // 计算加权平均
-  let weightedSum = 0
-  let weightTotal = 0
-
-  for (let i = 0; i < data.history.length; i++) {
-    const weightIndex = Math.max(0, data.weights.length - (data.history.length - i))
-    const weight = data.weights[weightIndex] || 0.1
-    weightedSum += data.history[i] * weight
-    weightTotal += weight
-  }
-
-  data.smoothed = weightedSum / weightTotal
-  cache.set(taskId, data)
-
-  return Math.round(data.smoothed * 100) / 100 // 保留两位小数
-}
-
-// 获取平滑后的进度
-function getSmoothedProgress(taskId: string, progress: number): number {
-  const smoothed = smoothProgress(taskId, progress)
-  return smoothed
-}
-
-// 获取任务列表
+/**
+ * 获取任务列表
+ */
 async function fetchTasks() {
   try {
-    const response = await get<Task[]>('/tasks')
-    // 兼容 code=0 或 success=true 两种格式
-    if ((response.code === 0 || response.success === true) && response.data) {
-      const newTasks = response.data.map(task => {
-        // 终态任务（completed/failed/cancelled）跳过平滑算法，直接使用后端返回的进度
-        const isTerminalStatus = ['completed', 'failed', 'cancelled'].includes(task.status)
-        const progress = isTerminalStatus ? task.progress : getSmoothedProgress(task.id, task.progress)
-        return {
-          ...task,
-          progress
-        }
-      })
-      
-      // 检测是否有任务刚完成（之前是 downloading，现在是 completed）
-      const hasNewCompleted = newTasks.some(newTask => {
-        const oldTask = tasks.value.find(t => t.id === newTask.id)
-        return oldTask &&
-               (oldTask.status === 'downloading' || oldTask.status === 'merging') &&
-               (newTask.status === 'completed' || newTask.status === 'failed' || newTask.status === 'cancelled')
-      })
-      
-      tasks.value = newTasks
+    const newTasks = await apiFetchTasks()
 
-      // 智能控制轮询启停
-      updatePolling()
-      
-      // 如果有新完成的任务，立即再刷新一次（确保 UI 立即更新）
-      if (hasNewCompleted) {
-        console.log('检测到任务完成，立即刷新')
-        setTimeout(() => fetchTasks(), 500)
-      }
+    // 应用进度平滑
+    const processedTasks = newTasks.map(task => {
+      const isTerminalStatus = ['completed', 'failed', 'cancelled'].includes(task.status)
+      const progress = isTerminalStatus
+        ? task.progress
+        : getSmoothedProgress(task.id, task.progress)
+      return { ...task, progress }
+    })
+
+    // 检测是否有任务刚完成
+    const hasNewCompleted = processedTasks.some(newTask => {
+      const oldTask = tasks.value.find(t => t.id === newTask.id)
+      return (
+        oldTask &&
+        ['downloading', 'merging'].includes(oldTask.status) &&
+        ['completed', 'failed', 'cancelled'].includes(newTask.status)
+      )
+    })
+
+    tasks.value = processedTasks
+
+    // 智能控制轮询启停
+    updateSmartPolling(tasks.value)
+
+    // 如果有新完成的任务，立即再刷新一次
+    if (hasNewCompleted) {
+      console.log('检测到任务完成，立即刷新')
+      setTimeout(() => fetchTasks(), 500)
     }
   } catch (e: any) {
     if (e.response?.status === 401) {
       error.value = '未授权，请重新登录'
     } else {
-      // API 请求失败时显示空列表
       tasks.value = []
     }
   } finally {
@@ -243,83 +90,9 @@ async function fetchTasks() {
   }
 }
 
-// 取消/删除任务（后端会根据任务状态自动判断）
-async function cancelOrDeleteTask(taskId: string) {
-  if (!confirm('确定要操作这个任务吗？')) return
-
-  try {
-    const response = await del(`/tasks/${taskId}`)
-    // 支持 code=0 或 success=true 两种格式
-    if (response.code === 0 || response.success === true) {
-      // 从列表中移除
-      tasks.value = tasks.value.filter(t => t.id !== taskId)
-    } else {
-      alert(response.message || response.error || '操作失败')
-    }
-  } catch (e: any) {
-    alert('操作任务失败，请稍后重试')
-  }
-}
-
-// 取消任务（调用取消/删除函数）
-async function cancelTask(taskId: string) {
-  await cancelOrDeleteTask(taskId)
-}
-
-// 删除任务（调用取消/删除函数）
-async function deleteTask(taskId: string) {
-  await cancelOrDeleteTask(taskId)
-}
-
-    // 下载文件
-    async function downloadTask(taskId: string) {
-      const token = localStorage.getItem('token')
-
-      try {
-    		const response = await fetch(`/api/v1/tasks/${taskId}/download`, {
-    			headers: {
-    				'Authorization': `Bearer ${token}`
-    			}
-    		})
-
-    		if (!response.ok) {
-    			const error = await response.json().catch(() => ({ error: '下载失败' }))
-    			throw new Error(error.error || `HTTP ${response.status}`)
-    		}
-
-    		// 获取文件名：优先从 content-disposition 提取，如果失败使用默认名
-    		const disposition = response.headers.get('Content-Disposition')
-    		let filename = `【教学引用】${taskId}.mp4`
-    		if (disposition) {
-    		  // 尝试匹配 filename*=UTF-8'' (更标准)
-    		  const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i)
-    		  if (utf8Match && utf8Match[1]) {
-    		    filename = decodeURIComponent(utf8Match[1])
-    		  } else {
-    		    // 降级匹配普通 filename=
-    		    const normalMatch = disposition.match(/filename="?([^";\n]+)"?/i)
-    		    if (normalMatch && normalMatch[1]) {
-    		      filename = decodeURIComponent(normalMatch[1])
-    		    }
-    		  }
-    		}
-
-    		// 创建 Blob 并触发下载
-    		const blob = await response.blob()
-    		const url = window.URL.createObjectURL(blob)
-    		const a = document.createElement('a')
-    		a.href = url
-    		a.download = filename
-    		document.body.appendChild(a)
-    		a.click()
-    		document.body.removeChild(a)
-    		window.URL.revokeObjectURL(url)
-    	} catch (e: any) {
-    	  alert(e.message || '下载失败，请稍后重试')
-    	}
-    }
-
-    // 调整优先级（上移）
+/**
+ * 调整优先级（上移）
+ */
 function moveUp(taskId: string) {
   const index = tasks.value.findIndex(t => t.id === taskId)
   if (index > 0) {
@@ -330,7 +103,9 @@ function moveUp(taskId: string) {
   }
 }
 
-// 调整优先级（下移）
+/**
+ * 调整优先级（下移）
+ */
 function moveDown(taskId: string) {
   const index = tasks.value.findIndex(t => t.id === taskId)
   if (index !== -1 && index < tasks.value.length - 1) {
@@ -341,70 +116,48 @@ function moveDown(taskId: string) {
   }
 }
 
-// 轮询：智能控制（有任务进行时才轮询）
-function startPolling() {
-  if (pollTimer) {
-    clearInterval(pollTimer)
-  }
-  pollTimer = setInterval(() => {
-    fetchTasks()
-  }, 3000) // 3 秒轮询一次，避免用户焦虑
-}
-
-function stopPolling() {
-  if (pollTimer) {
-    clearInterval(pollTimer)
-    pollTimer = null
+/**
+ * 处理取消/删除
+ */
+async function onCancelOrDelete(taskId: string) {
+  const success = await handleCancelOrDelete(taskId)
+  if (success) {
+    tasks.value = tasks.value.filter(t => t.id !== taskId)
   }
 }
 
-// 检查是否有活跃任务（需要继续轮询）
-function hasActiveTasks(): boolean {
-  return tasks.value.some(t => ['queued', 'downloading', 'merging'].includes(t.status))
-}
-
-// 智能轮询控制：根据任务状态自动启停
-function updatePolling() {
-  const active = hasActiveTasks()
-  if (active && !pollTimer) {
-    // 有活跃任务且未轮询，启动轮询
-    console.log('检测到活跃任务，启动轮询')
-    startPolling()
-  } else if (!active && pollTimer) {
-    // 无活跃任务且在轮询，停止轮询（节约资源）
-    console.log('无活跃任务，停止轮询')
-    stopPolling()
-  }
+/**
+ * 处理下载
+ */
+async function onDownload(taskId: string) {
+  await handleDownload(taskId)
 }
 
 // 生命周期
 onMounted(() => {
-  // 加载初始任务列表（会自动触发轮询控制）
   fetchTasks()
 
   // 定期清理缓存（每 5 分钟）
-  cacheCleanupInterval.value = setInterval(() => {
-    cleanupFinishedTasks()
+  cacheCleanupInterval = setInterval(() => {
+    cleanupStaleCache()
   }, 5 * 60 * 1000)
 })
 
-// 清理
 onBeforeUnmount(() => {
-  stopPolling()
-  if (cacheCleanupInterval.value) {
-    clearInterval(cacheCleanupInterval.value)
+  if (cacheCleanupInterval) {
+    clearInterval(cacheCleanupInterval)
   }
 })
 </script>
 
 <template>
   <div>
+    <!-- 标题栏 -->
     <div class="flex justify-between items-center mb-6">
       <div class="flex items-center space-x-3">
         <h1 class="text-2xl font-bold text-gray-900">任务列表</h1>
-        <!-- 轮询状态指示器 -->
         <span
-          v-if="!loading && pollTimer"
+          v-if="!loading && isPolling"
           class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800"
           title="每 3 秒自动刷新"
         >
@@ -464,92 +217,43 @@ onBeforeUnmount(() => {
           </tr>
         </thead>
         <tbody class="bg-white divide-y divide-gray-200">
-          <tr v-for="task in tasks" :key="task.id" class="hover:bg-gray-50">
+          <tr v-for="(task, index) in tasks" :key="task.id" class="hover:bg-gray-50">
             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 max-w-xs truncate">
               <a :href="task.url" target="_blank" class="text-primary-600 hover:text-primary-800 hover:underline">
                 {{ formatUrl(task.url) }}
               </a>
             </td>
             <td class="px-6 py-4 whitespace-nowrap">
-              <span :class="['px-2 py-1 text-xs rounded-full', getStatusClass(task.status)]">
-                {{ getStatusText(task.status) }}
-              </span>
-              <span v-if="task.message" class="ml-2 text-xs text-red-600">{{ task.message }}</span>
+              <TaskStatusBadge :status="task.status" :message="task.message" :show-message="true" />
             </td>
             <td class="px-6 py-4 whitespace-nowrap">
-              <span :class="['px-2 py-1 text-xs rounded-full', getPriorityClass(task.priority)]">
-                {{ getPriorityText(task.priority) }}
+              <span :class="[
+                'px-2 py-1 text-xs rounded-full',
+                task.priority === 'high' ? 'bg-red-100 text-red-600' :
+                task.priority === 'normal' ? 'bg-blue-100 text-blue-600' :
+                'bg-gray-100 text-gray-600'
+              ]">
+                {{ task.priority === 'high' ? '高' : task.priority === 'normal' ? '普通' : '低' }}
               </span>
             </td>
             <td class="px-6 py-4 whitespace-nowrap">
-              <div class="flex items-center">
-                <div class="w-24 h-2 bg-gray-200 rounded-full overflow-hidden">
-                  <div
-                    :class="['h-full transition-all duration-300', getProgressColor(task.status, task.progress)]"
-                    :style="{ width: task.progress + '%' }"
-                  ></div>
-                </div>
-                <span class="ml-2 text-sm text-gray-500">{{ task.progress }}%</span>
-              </div>
+              <TaskProgressBar :progress="task.progress" :status="task.status" />
             </td>
             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
               {{ formatTime(task.createdAt) }}
             </td>
             <td class="px-6 py-4 whitespace-nowrap text-sm">
-              <div class="flex space-x-2">
-                <!-- 上移 -->
-                <button
-                  v-if="tasks.indexOf(task) > 0"
-                  @click="moveUp(task.id)"
-                  class="text-gray-400 hover:text-gray-600"
-                  title="上移"
-                >
-                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7"/>
-                  </svg>
-                </button>
-                <!-- 下移 -->
-                <button
-                  v-if="tasks.indexOf(task) < tasks.length - 1"
-                  @click="moveDown(task.id)"
-                  class="text-gray-400 hover:text-gray-600"
-                  title="下移"
-                >
-                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
-                  </svg>
-                </button>
-                <!-- 取消 -->
-                <button
-                  v-if="task.status === 'queued' || task.status === 'downloading'"
-                  @click="cancelTask(task.id)"
-                  class="text-yellow-600 hover:text-yellow-900"
-                  title="取消"
-                >
-                  取消
-                </button>
-                <!-- 下载 -->
-                		<button
-                		v-if="task.status === 'completed'"
-                		@click="downloadTask(task.id)"
-                		class="text-green-600 hover:text-green-900 flex items-center"
-                		title="下载"
-                		>
-                		<svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                		<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
-                		</svg>
-                		下载
-                		</button>
-                		<!-- 删除 -->
-                		<button
-                		v-if="task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled'"
-                		@click="deleteTask(task.id)"
-                		class="text-red-600 hover:text-red-900"
-                		title="删除"
-                		>
-                		删除
-                		</button>
-                		</div>
+              <TaskActionButtons
+                :status="task.status"
+                :task-id="task.id"
+                :index="index"
+                :total="tasks.length"
+                @cancel="onCancelOrDelete"
+                @delete="onCancelOrDelete"
+                @download="onDownload"
+                @move-up="moveUp"
+                @move-down="moveDown"
+              />
             </td>
           </tr>
         </tbody>
