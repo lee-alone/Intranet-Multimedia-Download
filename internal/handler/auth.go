@@ -369,11 +369,17 @@ type MFAResponse struct {
 	Message string `json:"message,omitempty"`
 }
 
-// GetAuditLogs 获取审计日志（移除 MFA 验证）
+// GetAuditLogs 获取审计日志（仅管理员）
 func (h *AuthHandler) GetAuditLogs(w http.ResponseWriter, r *http.Request) {
 	claims, ok := r.Context().Value(ClaimsContextKey).(*auth.Claims)
 	if !ok {
 		writeError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	// 检查管理员权限
+	if claims.Role != "admin" {
+		writeError(w, http.StatusForbidden, "需要管理员权限")
 		return
 	}
 
@@ -403,11 +409,10 @@ func (h *AuthHandler) GetAuditLogs(w http.ResponseWriter, r *http.Request) {
 		       u.username
 		FROM audit_logs a
 		LEFT JOIN users u ON a.user_id = u.id
-		WHERE a.user_id = ?
 		ORDER BY a.created_at DESC
 		LIMIT ? OFFSET ?
 	`
-	rows, err := h.db.Query(query, claims.UserID, limit, offset)
+	rows, err := h.db.Query(query, limit, offset)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Failed to query audit logs")
 		return

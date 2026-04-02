@@ -1,6 +1,10 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { get } from '@/api'
+import { useAuthStore } from '@/stores/auth'
+
+const authStore = useAuthStore()
+const isAdmin = computed(() => authStore.user?.role === 'admin')
 
 interface AuditLog {
   id: number
@@ -20,6 +24,10 @@ const loading = ref(false)
 const error = ref('')
 
 onMounted(async () => {
+  if (!isAdmin.value) {
+    error.value = '需要管理员权限才能访问审计日志'
+    return
+  }
   await loadAuditLogs()
 })
 

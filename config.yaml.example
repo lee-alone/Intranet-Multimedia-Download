@@ -43,14 +43,10 @@ download:
   max_file_size: 10737418240 # 10GB
   temp_dir: "./temp"
   output_dir: "./downloads"
-  # 允许下载的域名白名单
-  whitelist:
-    - "bilibili.com"
-    - "youtube.com"
-    - "youku.com"
-    - "iqiyi.com"
-    - "v.qq.com"
-    - "tv.cctv.com"
+  # 域名白名单（已禁用，支持所有网站）
+  # whitelist:
+  #   - "bilibili.com"
+  #   - "youtube.com"
 
 # 日志配置
 log:

@@ -180,6 +180,8 @@ export const useAuthStore = defineStore('auth', () => {
       // 忽略登出错误
     } finally {
       clearAuth()
+      // 跳转到登录页
+      window.location.href = '/login'
     }
   }
 

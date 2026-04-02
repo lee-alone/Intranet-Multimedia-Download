@@ -1,12 +1,11 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
 const route = useRoute()
-const router = useRouter()
 const authStore = useAuthStore()
-const sidebarOpen = ref(true)
+const sidebarOpen = ref(false)
 const isMobile = ref(false)
 
 // 检测屏幕宽度并响应式更新
@@ -29,12 +28,19 @@ onUnmounted(() => {
   window.removeEventListener('resize', updateMobileState)
 })
 
+// 监听路由变化，移动端自动关闭侧边栏
+watch(() => route.path, () => {
+  if (isMobile.value) {
+    sidebarOpen.value = false
+  }
+})
+
 // 菜单项定义（使用 SVG 图标）
 const menuItems = [
   { name: '仪表盘', path: '/', icon: 'home' },
   { name: '任务列表', path: '/tasks', icon: 'list' },
   { name: '新建任务', path: '/tasks/new', icon: 'plus' },
-  { name: '审计日志', path: '/audit', icon: 'shield' },
+  { name: '审计日志', path: '/audit', icon: 'shield', adminOnly: true },
   { name: '用户管理', path: '/users', icon: 'users', adminOnly: true },
   { name: '个人中心', path: '/profile', icon: 'user' },
 ]
@@ -55,12 +61,17 @@ function isActive(itemPath: string): boolean {
   const currentPath = route.path
   // 精确匹配
   if (itemPath === '/') {
-    return currentPath === itemPath
+    return currentPath === '/'
   }
-  // 前缀匹配：任务相关
+  // 任务列表：仅精确匹配 /tasks
   if (itemPath === '/tasks') {
-    return currentPath === '/tasks' || currentPath.startsWith('/tasks/')
+    return currentPath === '/tasks'
   }
+  // 新建任务：精确匹配 /tasks/new
+  if (itemPath === '/tasks/new') {
+    return currentPath === '/tasks/new'
+  }
+  // 其他路径：精确匹配
   return currentPath === itemPath
 }
 
@@ -94,11 +105,17 @@ const icons: Record<string, any> = {
 
 function handleLogout() {
   authStore.logout()
-  router.push('/login')
+  // logout() 已经处理了跳转，不需要再调用 router.push
 }
 
 function toggleSidebar() {
   sidebarOpen.value = !sidebarOpen.value
+}
+
+function closeSidebar() {
+  if (isMobile.value) {
+    sidebarOpen.value = false
+  }
 }
 </script>
 
@@ -106,17 +123,17 @@ function toggleSidebar() {
   <div class="min-h-screen flex bg-gray-100">
     <!-- 移动端遮罩层 -->
     <div
-      v-if="isMobile && !sidebarOpen"
+      v-if="isMobile && sidebarOpen"
       class="fixed inset-0 bg-black bg-opacity-50 z-20 md:hidden"
-      @click="sidebarOpen = true"
+      @click="closeSidebar"
     ></div>
 
     <!-- 侧边栏 -->
     <aside
       :class="[
         'bg-gray-900 text-white transition-all duration-300 fixed md:relative z-30 h-full overflow-y-auto overflow-x-hidden',
-        sidebarOpen ? 'w-64' : 'w-0 md:w-20',
-        isMobile && !sidebarOpen ? 'hidden md:block' : ''
+        sidebarOpen ? 'w-64 translate-x-0' : 'w-0 -translate-x-full md:w-20 md:translate-x-0',
+        isMobile && !sidebarOpen ? 'hidden' : ''
       ]"
     >
       <!-- Logo 区域 -->
@@ -140,6 +157,7 @@ function toggleSidebar() {
           v-for="item in filteredMenuItems"
           :key="item.path"
           :to="item.path"
+          @click="closeSidebar"
           class="flex items-center px-3 py-3 mb-1 text-gray-400 hover:bg-gray-800 hover:text-white rounded-lg transition-colors group outline-none border-none relative z-10"
           :class="{ 'bg-primary-600 text-white': isActive(item.path) }"
         >

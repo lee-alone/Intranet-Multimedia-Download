@@ -120,9 +120,10 @@ func WhitelistMiddleware(wm *WhitelistManager) func(http.Handler) http.Handler {
 	}
 }
 
-// ValidateURL 验证 URL 是否在白名单中
+// ValidateURL 验证 URL 格式（已移除白名单限制，支持所有网站）
 func ValidateURL(wm *WhitelistManager, rawURL string) error {
-	domain, err := ExtractDomain(rawURL)
+	// 仅验证 URL 格式，不再限制域名
+	_, err := ExtractDomain(rawURL)
 	if err != nil {
 		return &URLValidationError{
 			Code:    "E400",
@@ -131,15 +132,7 @@ func ValidateURL(wm *WhitelistManager, rawURL string) error {
 		}
 	}
 
-	if !wm.IsAllowed(domain) {
-		return &URLValidationError{
-			Code:    "E401",
-			Message: "该网站不在允许下载范围内",
-			URL:     rawURL,
-			Domain:  domain,
-		}
-	}
-
+	// 已通过验证，允许所有网站
 	return nil
 }
 
