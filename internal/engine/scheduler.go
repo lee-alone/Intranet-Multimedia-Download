@@ -162,6 +162,7 @@ type TaskScheduler struct {
 	activeCount      int32
 	ctx              context.Context
 	cancel           context.CancelFunc
+	cancels          map[string]context.CancelFunc // 存储每个活跃任务的取消函数
 	engine           Engine
 	onTaskUpdate     func(task *Task)
 	onProgressUpdate func(task *Task)
@@ -180,6 +181,7 @@ func NewTaskScheduler(engine Engine, config SchedulerConfig) *TaskScheduler {
 		config:    config,
 		tasks:     make(map[string]*Task),
 		queue:     make([]*Task, 0),
+		cancels:   make(map[string]context.CancelFunc),
 		semaphore: make(chan struct{}, config.MaxConcurrent),
 		taskChan:  make(chan *Task, config.QueueSize),
 		ctx:       ctx,
@@ -271,8 +273,18 @@ func (s *TaskScheduler) executeTask(task *Task) {
 	log.Printf("开始执行任务 %s: URL=%s", task.ID, task.URL)
 	task.StartedAt = time.Now()
 	s.notifyTaskUpdate(task)
-	ctx, cancel := context.WithCancel(s.ctx)
-	defer cancel()
+
+	// 创建任务级别的取消函数，并注册到 cancels map
+	taskCtx, taskCancel := context.WithCancel(s.ctx)
+	s.mu.Lock()
+	s.cancels[task.ID] = taskCancel
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		delete(s.cancels, task.ID)
+		s.mu.Unlock()
+		taskCancel() // 确保释放资源
+	}()
 
 	if s.engine == nil {
 		log.Printf("错误：任务调度器未配置下载引擎")
@@ -282,7 +294,7 @@ func (s *TaskScheduler) executeTask(task *Task) {
 		return
 	}
 
-	progressChan := s.engine.Download(ctx, task.URL, task.Options)
+	progressChan := s.engine.Download(taskCtx, task.URL, task.Options)
 	var lastProgress DownloadProgress
 	hasError := false
 	for p := range progressChan {
@@ -354,13 +366,14 @@ func containsCI(s, substr string) bool {
 
 func (s *TaskScheduler) notifyTaskUpdate(task *Task) {
 	s.mu.RLock()
-	callback := s.onTaskUpdate
+	onUpdate := s.onTaskUpdate
+	onProgress := s.onProgressUpdate
 	s.mu.RUnlock()
-	if callback != nil {
-		callback(task)
+	if onUpdate != nil {
+		onUpdate(task)
 	}
-	if s.onProgressUpdate != nil {
-		s.onProgressUpdate(task)
+	if onProgress != nil {
+		onProgress(task)
 	}
 }
 
@@ -376,27 +389,44 @@ func (s *TaskScheduler) GetTask(taskID string) (*Task, error) {
 
 func (s *TaskScheduler) CancelTask(taskID string) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	task, ok := s.tasks[taskID]
 	if !ok {
+		s.mu.Unlock()
 		return fmt.Errorf("任务不存在：%s", taskID)
 	}
 	if task.Status.IsTerminal() {
+		s.mu.Unlock()
 		return fmt.Errorf("任务已完成/失败/已取消，无法取消")
 	}
-	// 使用 TransitionStatus 进行状态转换
+	// 修改状态
 	if err := task.TransitionStatus(TaskStatusCancelled); err != nil {
+		s.mu.Unlock()
 		log.Printf("任务 %s 状态转换失败：%v", taskID, err)
 		return err
 	}
 	task.CompletedAt = time.Now()
+	// 从队列中移除
 	for i, t := range s.queue {
 		if t.ID == taskID {
 			s.queue = append(s.queue[:i], s.queue[i+1:]...)
 			break
 		}
 	}
+	// 取出取消函数
+	cancelFunc, hasCancel := s.cancels[taskID]
+
+	// 关键：在执行耗时或可能触发后续锁的操作前，先释放调度器锁
+	s.mu.Unlock()
+
+	log.Printf("正在取消任务 %s...", taskID)
+	// 执行物理取消 (此时不持有锁)
+	if hasCancel {
+		cancelFunc()
+	}
+	// 执行更新通知 (此时不持有锁)
 	s.notifyTaskUpdate(task)
+
+	log.Printf("任务 %s 已成功标记取消并终止进程\n", taskID)
 	return nil
 }
 

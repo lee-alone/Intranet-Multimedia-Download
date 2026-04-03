@@ -243,43 +243,57 @@ func (h *TaskHandler) CancelTask(w http.ResponseWriter, r *http.Request) {
 
 	// 从调度器取消任务
 	if err := h.scheduler.CancelTask(taskID); err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Sprintf("取消任务失败：%v", err))
-		return
-	}
-
-	// 清理临时文件
-	if filePath.Valid && filePath.String != "" {
-		if err := cleanupTempFiles(filePath.String); err != nil {
-			// 记录错误但不影响取消操作
-			fmt.Printf("清理临时文件失败：%v\n", err)
+		// 如果错误仅仅是任务不在调度器内存中，我们记录一下但不作为 500 错误返回
+		if strings.Contains(err.Error(), "任务不存在") {
+			fmt.Printf("警告：尝试取消的任务 %s 不在活跃队列中，将直接更新数据库状态\n", taskID)
+		} else {
+			// 其他真正的系统错误（如状态转换非法）才返回 500
+			writeError(w, http.StatusInternalServerError, fmt.Sprintf("取消任务失败：%v", err))
+			return
 		}
 	}
 
-	// 更新数据库状态
-	_, err = h.db.Exec(`
-		UPDATE tasks SET status = ?, completed_at = ? WHERE id = ?
-	`, string(engine.TaskStatusCancelled), time.Now(), taskID)
-	if err != nil {
-		// 记录错误但不影响响应
-		fmt.Printf("更新任务状态失败：%v\n", err)
+	// 异步清理临时文件，避免阻塞 API 响应
+	// 即使 filePath 为空，也利用 taskID 构造路径进行"盲扫"清理
+	targetPath := ""
+	if filePath.Valid && filePath.String != "" {
+		targetPath = filePath.String
+	} else {
+		targetPath = filepath.Join(h.outputDir, taskID+".mp4")
 	}
+	go func(p string) {
+		time.Sleep(1 * time.Second) // 适当延长等待，确保进程句柄完全释放
+		if err := cleanupTempFiles(p); err != nil {
+			fmt.Printf("清理临时文件失败：%v\n", err)
+		}
+	}(targetPath)
 
-	// 如果是批量任务的一部分，更新批量任务计数
-	var batchID sql.NullString
-	err = h.db.QueryRow(`SELECT batch_id FROM tasks WHERE id = ?`, taskID).Scan(&batchID)
-	if err == nil && batchID.Valid && batchID.String != "" {
-		// 更新批量任务的取消计数
-		_, _ = h.db.Exec(`
-			UPDATE batch_tasks
-			SET completed_count = completed_count + 1
-			WHERE id = ?
-		`, batchID.String)
-	}
-
+	// 立即返回响应
 	writeJSON(w, http.StatusOK, TaskCancelResponse{
 		Success: true,
 		Message: "任务已取消",
 	})
+
+	// 异步更新数据库状态
+	go func() {
+		_, err = h.db.Exec(`
+		UPDATE tasks SET status = ?, completed_at = ? WHERE id = ?
+	`, string(engine.TaskStatusCancelled), time.Now(), taskID)
+		if err != nil {
+			fmt.Printf("更新任务状态失败：%v\n", err)
+		}
+
+		// 如果是批量任务的一部分，更新批量任务计数
+		var batchID sql.NullString
+		err = h.db.QueryRow(`SELECT batch_id FROM tasks WHERE id = ?`, taskID).Scan(&batchID)
+		if err == nil && batchID.Valid && batchID.String != "" {
+			_, _ = h.db.Exec(`
+			UPDATE batch_tasks
+			SET completed_count = completed_count + 1
+			WHERE id = ?
+		`, batchID.String)
+		}
+	}()
 }
 
 // DeleteTask 删除任务（从数据库中删除已完成/失败/已取消的任务记录）
@@ -478,40 +492,57 @@ func (h *TaskHandler) CancelOrDeleteTask(w http.ResponseWriter, r *http.Request)
 		// 非终态任务：取消
 		// 从调度器取消任务
 		if err := h.scheduler.CancelTask(taskID); err != nil {
-			writeError(w, http.StatusInternalServerError, fmt.Sprintf("取消任务失败：%v", err))
-			return
-		}
-
-		// 清理临时文件
-		if filePath.Valid && filePath.String != "" {
-			if err := cleanupTempFiles(filePath.String); err != nil {
-				fmt.Printf("清理临时文件失败：%v\n", err)
+			// 如果错误仅仅是任务不在调度器内存中，我们记录一下但不作为 500 错误返回
+			if strings.Contains(err.Error(), "任务不存在") {
+				fmt.Printf("警告：尝试取消的任务 %s 不在活跃队列中，将直接更新数据库状态\n", taskID)
+			} else {
+				// 其他真正的系统错误（如状态转换非法）才返回 500
+				writeError(w, http.StatusInternalServerError, fmt.Sprintf("取消任务失败：%v", err))
+				return
 			}
 		}
 
-		// 更新数据库状态
-		_, err = h.db.Exec(`
-		UPDATE tasks SET status = ?, completed_at = ? WHERE id = ?
-		`, string(engine.TaskStatusCancelled), time.Now(), taskID)
-		if err != nil {
-			fmt.Printf("更新任务状态失败：%v\n", err)
+		// 异步清理临时文件，避免阻塞 API 响应
+		// 即使 filePath 为空，也利用 taskID 构造路径进行"盲扫"清理
+		targetPath := ""
+		if filePath.Valid && filePath.String != "" {
+			targetPath = filePath.String
+		} else {
+			targetPath = filepath.Join(h.outputDir, taskID+".mp4")
 		}
+		go func(p string) {
+			time.Sleep(1 * time.Second) // 适当延长等待，确保进程句柄完全释放
+			if err := cleanupTempFiles(p); err != nil {
+				fmt.Printf("清理临时文件失败：%v\n", err)
+			}
+		}(targetPath)
 
-		// 如果是批量任务的一部分，更新批量任务计数
-		var batchID sql.NullString
-		err = h.db.QueryRow(`SELECT batch_id FROM tasks WHERE id = ?`, taskID).Scan(&batchID)
-		if err == nil && batchID.Valid && batchID.String != "" {
-			_, _ = h.db.Exec(`
-			UPDATE batch_tasks
-			SET completed_count = completed_count + 1
-			WHERE id = ?
-			`, batchID.String)
-		}
-
+		// 立即返回响应
 		writeJSON(w, http.StatusOK, TaskCancelResponse{
 			Success: true,
 			Message: "任务已取消",
 		})
+
+		// 异步更新数据库状态
+		go func() {
+			_, err = h.db.Exec(`
+			UPDATE tasks SET status = ?, completed_at = ? WHERE id = ?
+			`, string(engine.TaskStatusCancelled), time.Now(), taskID)
+			if err != nil {
+				fmt.Printf("更新任务状态失败：%v\n", err)
+			}
+
+			// 如果是批量任务的一部分，更新批量任务计数
+			var batchID sql.NullString
+			err = h.db.QueryRow(`SELECT batch_id FROM tasks WHERE id = ?`, taskID).Scan(&batchID)
+			if err == nil && batchID.Valid && batchID.String != "" {
+				_, _ = h.db.Exec(`
+				UPDATE batch_tasks
+				SET completed_count = completed_count + 1
+				WHERE id = ?
+				`, batchID.String)
+			}
+		}()
 	}
 }
 
@@ -526,20 +557,43 @@ func (h *TaskHandler) extractIDFromPath(path string, index int) (string, error) 
 
 // cleanupTempFiles 清理临时文件
 func cleanupTempFiles(filePath string) error {
+	if filePath == "" {
+		return nil
+	}
+
 	// 获取文件目录
 	dir := filepath.Dir(filePath)
 
 	// 获取文件名（不含扩展名）
 	baseName := strings.TrimSuffix(filepath.Base(filePath), filepath.Ext(filePath))
 
-	// 清理相关的临时文件
+	// 清理相关的临时文件 - 增强模式匹配
 	patterns := []string{
+		// 原文件及常见变体
+		filePath,
 		filePath + ".part",
 		filePath + ".temp",
+		filePath + ".ytdl",
+		filePath + ".download",
+		// yt-dlp 分片文件 (fxxx.mp4.part, fxxx.webm.part 等)
 		filepath.Join(dir, baseName+".part*"),
+		filepath.Join(dir, baseName+".ytdl*"),
 		filepath.Join(dir, baseName+".temp*"),
+		filepath.Join(dir, baseName+".download*"),
+		// yt-dlp 格式特定分片
 		filepath.Join(dir, baseName+".f*.part"),
 		filepath.Join(dir, baseName+".f*.temp"),
+		filepath.Join(dir, baseName+".f*.mp4.part"),
+		filepath.Join(dir, baseName+".f*.webm.part"),
+		// lux/annie 临时文件
+		filepath.Join(dir, baseName+".tmp"),
+		filepath.Join(dir, baseName+".tmp*"),
+		// 其他常见临时文件
+		filepath.Join(dir, baseName+".aria2"),
+		filepath.Join(dir, baseName+".aria2*"),
+		// 合并前的音视频分离文件
+		filepath.Join(dir, baseName+".f*.mp4"),
+		filepath.Join(dir, baseName+".f*.webm"),
 	}
 
 	for _, pattern := range patterns {
@@ -549,21 +603,14 @@ func cleanupTempFiles(filePath string) error {
 			continue
 		}
 		for _, match := range matches {
-			// 忽略不存在错误，并针对 Windows 占用情况添加重试机制
-			for i := 0; i < 2; i++ {
+			// 针对 Windows 占用情况添加重试机制
+			for i := 0; i < 3; i++ {
 				err := os.Remove(match)
 				if err == nil || os.IsNotExist(err) {
 					break
 				}
-				time.Sleep(100 * time.Millisecond)
+				time.Sleep(200 * time.Millisecond)
 			}
-		}
-	}
-
-	// 如果原文件存在也删除
-	if _, err := os.Stat(filePath); err == nil {
-		if err := os.Remove(filePath); err != nil {
-			return fmt.Errorf("删除文件失败：%w", err)
 		}
 	}
 

@@ -22,7 +22,6 @@
 - keys/ - JWT 密钥文件目录
 - logs/ - 日志文件目录
 - runtime/ - 外部下载工具 (yt-dlp, lux)
-- temp/ - 临时下载目录
 - downloads/ - 下载完成文件目录
 
 ## 注意事项
