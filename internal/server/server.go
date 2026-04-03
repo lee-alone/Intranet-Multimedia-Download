@@ -189,7 +189,7 @@ func (s *Server) Start() error {
 	}
 
 	// 启动服务器
-	log.Printf("Server starting on %s", s.cfg.GetAddress())
+	log.Printf("🚀 Campus Collector server started on %s", s.cfg.GetAddress())
 
 	if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return fmt.Errorf("server error: %w", err)

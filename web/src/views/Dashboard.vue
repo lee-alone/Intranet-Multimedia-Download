@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { get } from '@/api'
-import { createAuthenticatedWebSocket } from '@/api'
+import { useTaskPolling, type Task as PollingTask } from '@/composables/useTaskPolling'
 
 // 统计信息
 interface Stats {
@@ -16,7 +16,7 @@ interface Stats {
 interface Task {
   id: string
   url: string
-  status: string
+  status: PollingTask['status']
   progress: number
   createdAt?: string
 }
@@ -31,26 +31,16 @@ const stats = ref<Stats>({
 
 const recentTasks = ref<Task[]>([])
 const loading = ref(true)
-const ws = ref<WebSocket | null>(null)
 
 // 获取统计数据
 async function fetchStats() {
   try {
     const response = await get<Stats>('/tasks/stats')
-    // 兼容 code=0 或 success=true 两种格式
     if ((response.code === 0 || response.success === true) && response.data) {
       stats.value = response.data as any
     }
   } catch (e: any) {
     console.error('获取统计数据失败:', e)
-    // 使用模拟数据用于演示
-    stats.value = {
-      totalTasks: 25,
-      completedTasks: 18,
-      pendingTasks: 5,
-      failedTasks: 2,
-      downloadingTasks: 2,
-    }
   }
 }
 
@@ -58,82 +48,32 @@ async function fetchStats() {
 async function fetchRecentTasks() {
   try {
     const response = await get<Task[]>('/tasks?limit=5')
-    console.log('Dashboard fetchRecentTasks response:', response)
-    // 兼容 code=0 或 success=true 两种格式
-    // response 是 ApiResponse 类型，data 字段是实际的任务数组
     if (response.success === true && response.data) {
       recentTasks.value = response.data as any
     } else if (response.code === 0 && response.data) {
       recentTasks.value = response.data as any
     } else if (Array.isArray(response)) {
-      // 如果响应直接是数组
       recentTasks.value = response
     } else {
       recentTasks.value = []
     }
-    console.log('recentTasks:', recentTasks.value)
   } catch (e: any) {
     console.error('获取最近任务失败:', e)
-    // 失败时显示空列表
     recentTasks.value = []
   } finally {
     loading.value = false
   }
 }
 
-// 连接 WebSocket 获取实时更新
-function connectWebSocket() {
-  // 检查是否有有效的 token，没有则不连接
-  const token = localStorage.getItem('token')
-  if (!token) {
-    console.log('WebSocket 连接跳过：未登录')
-    return
-  }
-
-  try {
-    // 使用 /api/v1/ws 进行 WebSocket 连接，订阅所有任务更新
-    const socket = createAuthenticatedWebSocket('/api/v1/ws')
-
-    socket.onopen = () => {
-      console.log('Dashboard WebSocket 连接成功')
-    }
-
-    socket.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data)
-        // 更新统计数据
-        if (data.type === 'stats') {
-          stats.value = data.data
-        }
-        // 更新任务进度
-        if (data.type === 'task_update') {
-          const index = recentTasks.value.findIndex(t => t.id === data.task.id)
-          if (index !== -1) {
-            recentTasks.value[index] = { ...recentTasks.value[index], ...data.task }
-          }
-        }
-      } catch (e) {
-        console.error('解析 WebSocket 消息失败:', e)
-      }
-    }
-
-    socket.onerror = (error) => {
-      console.error('Dashboard WebSocket 错误:', error)
-    }
-
-    socket.onclose = () => {
-      console.log('Dashboard WebSocket 连接关闭')
-      // 5 秒后尝试重连
-      setTimeout(() => {
-        connectWebSocket()
-      }, 5000)
-    }
-
-    ws.value = socket
-  } catch (e) {
-    console.error('WebSocket 连接失败:', e)
-  }
+// 聚合刷新函数：同时刷新统计和最近任务
+async function refreshAll() {
+  await Promise.all([fetchStats(), fetchRecentTasks()])
+  // 轮询控制：根据任务状态自动启停
+  updateSmartPolling(recentTasks.value as PollingTask[])
 }
+
+// 挂载智能轮询
+const { updateSmartPolling } = useTaskPolling(() => refreshAll())
 
 // 格式化 URL
 function formatUrl(url: string): string {
@@ -165,16 +105,17 @@ function getStatusText(status: string): string {
 }
 
 onMounted(() => {
-  fetchStats()
-  fetchRecentTasks()
-  connectWebSocket()
+  // 首次加载
+  refreshAll().then(() => {
+    // 首次加载后根据状态决定是否启动轮询
+    updateSmartPolling(recentTasks.value as PollingTask[])
+  })
 })
 
-import { onBeforeUnmount } from 'vue'
 onBeforeUnmount(() => {
-  if (ws.value) {
-    ws.value.close()
-  }
+  // 组件卸载时停止轮询
+  const { stopSmartPolling } = useTaskPolling(() => {})
+  stopSmartPolling()
 })
 </script>
 

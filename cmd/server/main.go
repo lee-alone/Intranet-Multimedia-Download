@@ -20,7 +20,6 @@ import (
 func main() {
 	// 获取程序根目录（基于 os.Executable()，不受 CWD 影响）
 	execDir := config.GetBaseDir()
-	log.Printf("Program running directory: %s", execDir)
 
 	// 加载配置
 	cfg, err := config.Load()
@@ -38,26 +37,21 @@ func main() {
 		log.Fatalf("Failed to initialize database: %v", err)
 	}
 	defer database.Close()
-	log.Println("Database initialized successfully")
 
 	// 运行数据库迁移
 	if err := database.RunMigrations("./migrations"); err != nil {
 		log.Fatalf("Failed to run migrations: %v", err)
 	}
-	log.Println("Database migrations completed")
 
 	// 获取数据库连接
 	db := database.Get()
 
 	// 初始化默认管理员账号
-	log.Println("Initializing default admin user...")
 	adminCfg := cfg.Auth.DefaultAdmin
 	if adminCfg.Enabled {
 		if err := auth.InitDefaultAdmin(db, adminCfg.Username, adminCfg.Password, adminCfg.Email); err != nil {
 			log.Printf("警告：创建默认管理员账号失败：%v", err)
 		}
-	} else {
-		log.Println("默认管理员账号功能已禁用")
 	}
 
 	// 确保下载目录存在（相对于程序根目录）
@@ -65,7 +59,6 @@ func main() {
 	if err := os.MkdirAll(downloadDir, 0755); err != nil {
 		log.Fatalf("Failed to create downloads directory: %v", err)
 	}
-	log.Printf("Downloads directory: %s", downloadDir)
 
 	// 创建任务调度器
 	schedulerConfig := engine.DefaultSchedulerConfig()
@@ -102,7 +95,6 @@ func main() {
 
 	// 启动服务器（在 goroutine 中）
 	go func() {
-		log.Printf("Server starting on %s", cfg.GetAddress())
 		if err := srv.Start(); err != nil {
 			log.Printf("Server error: %v", err)
 		}

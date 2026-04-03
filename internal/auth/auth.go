@@ -46,14 +46,11 @@ type JWTManager struct {
 
 // NewJWTManager 创建新的 JWT 管理器
 func NewJWTManager(privateKeyPath, publicKeyPath string, expiry, refreshExpiry int) (*JWTManager, error) {
-	log.Printf("Loading JWT keys: private_key=%s, public_key=%s", privateKeyPath, publicKeyPath)
-	
 	// 读取私钥
 	privateKeyData, err := os.ReadFile(privateKeyPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read private key: %w", err)
 	}
-	log.Printf("Private key loaded, size: %d bytes", len(privateKeyData))
 
 	privateKey, err := jwt.ParseRSAPrivateKeyFromPEM(privateKeyData)
 	if err != nil {
@@ -65,14 +62,12 @@ func NewJWTManager(privateKeyPath, publicKeyPath string, expiry, refreshExpiry i
 	if err != nil {
 		return nil, fmt.Errorf("failed to read public key: %w", err)
 	}
-	log.Printf("Public key loaded, size: %d bytes", len(publicKeyData))
 
 	publicKey, err := jwt.ParseRSAPublicKeyFromPEM(publicKeyData)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse public key: %w", err)
 	}
 
-	log.Printf("JWT keys loaded successfully")
 	return &JWTManager{
 		privateKey:    privateKey,
 		publicKey:     publicKey,

@@ -21,7 +21,6 @@ func InitDefaultAdmin(db *sql.DB, username, password, email string) error {
 
 	// 如果已存在，跳过创建
 	if count > 0 {
-		log.Printf("管理员账号 %s 已存在，跳过创建", username)
 		return nil
 	}
 

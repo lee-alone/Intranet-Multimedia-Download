@@ -131,6 +131,12 @@ func (h *TaskHandler) GetTasks(w http.ResponseWriter, r *http.Request) {
 		if err := rows.Scan(&task.ID, &task.URL, &task.Status, &task.Progress, &createdAt); err != nil {
 			continue
 		}
+		// 从调度器获取实时进度（仅对非终态任务）
+		if !engine.TaskStatus(task.Status).IsTerminal() {
+			if activeTask, err := h.scheduler.GetTask(task.ID); err == nil {
+				task.Progress = activeTask.GetProgress().Percent
+			}
+		}
 		task.CreatedAt = createdAt.Format(time.RFC3339)
 		tasks = append(tasks, task)
 	}
