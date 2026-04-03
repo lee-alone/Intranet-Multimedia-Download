@@ -31,6 +31,8 @@ const (
 	ActionDeleteTask ActionType = "delete_task"
 	// ActionCancelTask 取消任务
 	ActionCancelTask ActionType = "cancel_task"
+	// ActionRetryTask 重新执行任务
+	ActionRetryTask ActionType = "retry_task"
 	// ActionDownload 下载文件
 	ActionDownload ActionType = "download"
 	// ActionViewAudit 查看审计日志

@@ -18,6 +18,7 @@ const emit = defineEmits<{
   cancel: [taskId: string]
   delete: [taskId: string]
   download: [taskId: string]
+  retry: [taskId: string]
   moveUp: [taskId: string]
   moveDown: [taskId: string]
 }>()
@@ -45,6 +46,11 @@ const canDownload = computed(() => {
 // 计算是否显示删除按钮
 const canDelete = computed(() => {
   return ['completed', 'failed', 'cancelled'].includes(props.status)
+})
+
+// 计算是否显示重试按钮
+const canRetry = computed(() => {
+  return ['failed', 'cancelled'].includes(props.status)
 })
 
 // 事件处理
@@ -75,6 +81,12 @@ function handleMoveUp() {
 function handleMoveDown() {
   if (!props.disabled) {
     emit('moveDown', props.taskId)
+  }
+}
+
+function handleRetry() {
+  if (!props.disabled) {
+    emit('retry', props.taskId)
   }
 }
 </script>
@@ -127,6 +139,19 @@ function handleMoveDown() {
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
       </svg>
       下载
+    </button>
+    <!-- 重试 -->
+    <button
+      v-if="canRetry"
+      @click="handleRetry"
+      :disabled="disabled"
+      class="text-blue-600 hover:text-blue-900 flex items-center disabled:opacity-50 disabled:cursor-not-allowed"
+      title="重新执行"
+    >
+      <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+      </svg>
+      重试
     </button>
     <!-- 删除 -->
     <button

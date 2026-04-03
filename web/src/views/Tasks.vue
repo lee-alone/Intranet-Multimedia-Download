@@ -14,7 +14,7 @@ const error = ref('')
 const showBatchView = ref(false)
 
 // 引入 composables
-const { fetchTasks: apiFetchTasks, handleCancelOrDelete, handleDownload } = useTaskActions()
+const { fetchTasks: apiFetchTasks, handleCancelOrDelete, handleDownload, retryTask } = useTaskActions()
 const { isPolling, updateSmartPolling } = useTaskPolling(() => fetchTasks())
 
 // 缓存清理定时器
@@ -131,6 +131,17 @@ async function onCancelOrDelete(taskId: string) {
  */
 async function onDownload(taskId: string) {
   await handleDownload(taskId)
+}
+
+/**
+ * 处理重试
+ */
+async function onRetry(taskId: string) {
+  const success = await retryTask(taskId)
+  if (success) {
+    // 刷新任务列表
+    await fetchTasks()
+  }
 }
 
 // 生命周期
@@ -251,6 +262,7 @@ onBeforeUnmount(() => {
                 @cancel="onCancelOrDelete"
                 @delete="onCancelOrDelete"
                 @download="onDownload"
+                @retry="onRetry"
                 @move-up="moveUp"
                 @move-down="moveDown"
               />

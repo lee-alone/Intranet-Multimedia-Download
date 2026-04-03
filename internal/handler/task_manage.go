@@ -616,3 +616,140 @@ func cleanupTempFiles(filePath string) error {
 
 	return nil
 }
+
+// RetryTask 重新执行任务（克隆旧任务为新任务）
+// POST /api/v1/tasks/{id}/retry
+func (h *TaskHandler) RetryTask(w http.ResponseWriter, r *http.Request) {
+	// 获取用户信息
+	claims, ok := GetClaimsFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "未授权访问")
+		return
+	}
+
+	// 从 URL 路径中提取 task_id
+	taskID, err := h.extractIDFromPath(r.URL.Path, 3)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "无效的请求路径或 ID")
+		return
+	}
+
+	if taskID == "" {
+		writeError(w, http.StatusBadRequest, "任务 ID 不能为空")
+		return
+	}
+
+	// 查询旧任务信息
+	var userID int64
+	var url, status string
+	var quality, engineType, batchID sql.NullString
+
+	err = h.db.QueryRow(`
+		SELECT user_id, url, status, quality, engine, batch_id FROM tasks WHERE id = ?
+	`, taskID).Scan(&userID, &url, &status, &quality, &engineType, &batchID)
+	if err == sql.ErrNoRows {
+		writeError(w, http.StatusNotFound, "任务不存在")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "查询任务失败")
+		return
+	}
+
+	// 验证用户权限
+	if int(userID) != claims.UserID && claims.Role != "admin" {
+		writeError(w, http.StatusForbidden, "无权重试此任务")
+		return
+	}
+
+	// 检查任务状态 - 仅允许失败或已取消的任务重试
+	taskStatus := engine.TaskStatus(status)
+	if taskStatus != engine.TaskStatusFailed && taskStatus != engine.TaskStatusCancelled && taskStatus != engine.TaskStatusCompleted {
+		writeError(w, http.StatusBadRequest, "只能重试失败、已取消或已完成的任务")
+		return
+	}
+
+	// 生成新任务 ID
+	newTaskID := generateTaskID()
+
+	// 克隆任务到数据库
+	qualityVal := ""
+	if quality.Valid {
+		qualityVal = quality.String
+	}
+	engineVal := ""
+	if engineType.Valid {
+		engineVal = engineType.String
+	}
+	batchIDVal := sql.NullString{}
+	if batchID.Valid {
+		batchIDVal = batchID
+	}
+
+	_, err = h.db.Exec(`
+		INSERT INTO tasks (id, user_id, url, status, quality, engine, batch_id, progress, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)
+	`, newTaskID, userID, url, string(engine.TaskStatusQueued), qualityVal, engineVal, batchIDVal, time.Now())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "创建新任务失败")
+		return
+	}
+
+	// 如果是批量任务的一部分，更新 batch_tasks 的 total_count
+	if batchIDVal.Valid && batchIDVal.String != "" {
+		_, _ = h.db.Exec(`
+			UPDATE batch_tasks SET total_count = total_count + 1 WHERE id = ?
+		`, batchIDVal.String)
+	}
+
+	// 构造新任务加入调度器
+	opts := engine.DownloadOptions{
+		OutputDir: h.outputDir,
+		TaskID:    newTaskID,
+	}
+	if qualityVal != "" {
+		opts.Quality = qualityVal
+	}
+
+	newTask := &engine.Task{
+		ID:        newTaskID,
+		URL:       url,
+		Options:   opts,
+		Status:    engine.TaskStatusQueued,
+		CreatedAt: time.Now(),
+	}
+
+	if err := h.scheduler.AddTask(newTask); err != nil {
+		// 如果加入调度器失败，回滚数据库记录
+		_, _ = h.db.Exec(`DELETE FROM tasks WHERE id = ?`, newTaskID)
+		writeError(w, http.StatusInternalServerError, "加入任务队列失败")
+		return
+	}
+
+	// 记录审计日志
+	userIDVal := int64(claims.UserID)
+	h.auditLogger.Log(&audit.AuditLog{
+		UserID:    &userIDVal,
+		Action:    audit.ActionRetryTask,
+		IPAddress: r.RemoteAddr,
+		UserAgent: r.UserAgent(),
+		Detail: map[string]interface{}{
+			"old_task_id": taskID,
+			"new_task_id": newTaskID,
+			"url":         url,
+		},
+		CreatedAt: time.Now(),
+	})
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"success":     true,
+		"message":     "任务已重新加入队列",
+		"new_task_id": newTaskID,
+		"old_task_id": taskID,
+	})
+}
+
+// generateTaskID 生成唯一任务 ID
+func generateTaskID() string {
+	return fmt.Sprintf("task_%d_%d", time.Now().UnixNano(), time.Now().Nanosecond())
+}

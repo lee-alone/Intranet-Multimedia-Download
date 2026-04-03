@@ -3,7 +3,7 @@
  * 提供任务取消、删除、下载等操作的封装
  */
 
-import { del, get } from '@/api'
+import { del, get, post } from '@/api'
 
 // 任务状态类型
 export type TaskStatus = 'queued' | 'downloading' | 'merging' | 'completed' | 'failed' | 'cancelled'
@@ -48,6 +48,23 @@ export async function cancelOrDeleteTask(taskId: string): Promise<ApiResponse> {
  */
 export async function cancelTask(taskId: string): Promise<ApiResponse> {
   return cancelOrDeleteTask(taskId)
+}
+
+/**
+ * 重新执行任务
+ * @param taskId 任务 ID
+ * @returns 操作结果（包含新任务 ID）
+ */
+export async function retryTask(taskId: string): Promise<ApiResponse> {
+  try {
+    const response = await post<ApiResponse>(`/tasks/${taskId}/retry`)
+    return response
+  } catch (e: any) {
+    return {
+      success: false,
+      error: e.message || '重新执行失败',
+    }
+  }
 }
 
 /**
@@ -165,13 +182,29 @@ export function useTaskActions() {
     }
   }
 
+  /**
+   * 处理重新执行操作，带提示
+   */
+  async function handleRetry(taskId: string): Promise<boolean> {
+    const result = await retryTask(taskId)
+
+    if (result.code === 0 || result.success === true) {
+      return true
+    } else {
+      alert(result.message || result.error || '重新执行失败')
+      return false
+    }
+  }
+
   return {
     cancelOrDeleteTask,
     cancelTask,
     deleteTask,
+    retryTask,
     downloadTask,
     fetchTasks,
     handleCancelOrDelete,
     handleDownload,
+    handleRetry,
   }
 }

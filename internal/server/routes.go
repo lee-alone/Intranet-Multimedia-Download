@@ -161,20 +161,29 @@ func (s *Server) registerRoutes() {
 		http.NotFound(w, r)
 	})))
 
-	// 单任务取消/删除/下载路由
+	// 单任务取消/删除/下载/重试路由
 	s.mux.Handle("/api/v1/tasks/", authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 		parts := strings.Split(path, "/")
+
+		// POST /api/v1/tasks/{id}/retry
+		if len(parts) == 6 && parts[5] == "retry" && r.Method == http.MethodPost {
+			taskHandler.RetryTask(w, r)
+			return
+		}
+		// GET /api/v1/tasks/{id}/download
 		if len(parts) == 6 && parts[5] == "download" && r.Method == http.MethodGet {
 			taskHandler.DownloadFile(w, r)
 			return
 		}
+		// DELETE /api/v1/tasks/{id} - 取消或删除任务
 		if len(parts) == 5 && parts[4] != "" {
 			if r.Method == http.MethodDelete {
 				taskHandler.CancelOrDeleteTask(w, r)
 				return
 			}
 		}
+		// GET /api/v1/tasks 或 /api/v1/tasks/
 		if r.Method == http.MethodGet && (len(parts) == 4 || (len(parts) == 5 && parts[4] == "")) {
 			taskHandler.GetTasks(w, r)
 			return
