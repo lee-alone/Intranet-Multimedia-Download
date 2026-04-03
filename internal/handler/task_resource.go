@@ -115,13 +115,6 @@ func (h *TaskHandler) GetOrphanResources(w http.ResponseWriter, r *http.Request)
 
 	// 支持扫描多个子目录
 	dirsToScan := []string{h.outputDir}
-	
-	// 添加 temp 目录
-	tempDir := filepath.Join(h.outputDir, "temp")
-	if _, err := os.Stat(tempDir); err == nil {
-		dirsToScan = append(dirsToScan, tempDir)
-		scannedPaths = append(scannedPaths, tempDir)
-	}
 
 	for _, scanDir := range dirsToScan {
 		err := filepath.Walk(scanDir, func(path string, info os.FileInfo, err error) error {
@@ -370,10 +363,6 @@ func (h *TaskHandler) CleanupAllOrphanResources(w http.ResponseWriter, r *http.R
 	failedFiles := make([]FailedFile, 0)
 
 	dirsToScan := []string{h.outputDir}
-	tempDir := filepath.Join(h.outputDir, "temp")
-	if _, err := os.Stat(tempDir); err == nil {
-		dirsToScan = append(dirsToScan, tempDir)
-	}
 
 	for _, scanDir := range dirsToScan {
 		err := filepath.Walk(scanDir, func(path string, info os.FileInfo, err error) error {

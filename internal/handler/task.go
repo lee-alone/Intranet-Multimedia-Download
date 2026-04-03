@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strconv"
 	"time"
 
@@ -23,7 +22,6 @@ type TaskHandler struct {
 	whitelistMgr *middleware.WhitelistManager
 	auditLogger  *audit.Logger
 	outputDir    string
-	tempDir      string
 }
 
 // NewTaskHandler 创建任务处理器
@@ -32,10 +30,6 @@ func NewTaskHandler(db *sql.DB, scheduler *engine.TaskScheduler, jwtMgr *auth.JW
 	// 确保目录存在
 	os.MkdirAll(outputDir, 0755)
 
-	// 临时目录设置为 outputDir 下的 temp 子目录
-	tempDir := filepath.Join(outputDir, "temp")
-	os.MkdirAll(tempDir, 0755)
-
 	return &TaskHandler{
 		db:           db,
 		scheduler:    scheduler,
@@ -43,7 +37,6 @@ func NewTaskHandler(db *sql.DB, scheduler *engine.TaskScheduler, jwtMgr *auth.JW
 		whitelistMgr: whitelistMgr,
 		auditLogger:  auditLogger,
 		outputDir:    outputDir,
-		tempDir:      tempDir,
 	}
 }
 

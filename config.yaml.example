@@ -41,7 +41,6 @@ download:
   max_retries: 3
   timeout: 3600 # 秒 (1 小时)
   max_file_size: 10737418240 # 10GB
-  temp_dir: "./temp"
   output_dir: "./downloads"
   # 域名白名单（已禁用，支持所有网站）
   # whitelist:

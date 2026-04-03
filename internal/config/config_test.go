@@ -58,7 +58,6 @@ download:
   max_retries: 2
   timeout: 1800
   max_file_size: 5368709120
-  temp_dir: "./temp"
   output_dir: "./output"
   whitelist:
     - "example.com"
@@ -235,9 +234,6 @@ func TestSetDefaults(t *testing.T) {
 	if cfg.Download.MaxSize != 10737418240 {
 		t.Errorf("Default max size = %d, want 10737418240", cfg.Download.MaxSize)
 	}
-	if cfg.Download.TempDir != "./temp" {
-		t.Errorf("Default temp dir = %q, want ./temp", cfg.Download.TempDir)
-	}
 	if cfg.Download.OutputDir != "./downloads" {
 		t.Errorf("Default output dir = %q, want ./downloads", cfg.Download.OutputDir)
 	}
@@ -280,7 +276,6 @@ func TestConvertPathsToAbsolute(t *testing.T) {
 			Dir: "./logs",
 		},
 		Download: DownloadConfig{
-			TempDir:   "./temp",
 			OutputDir: "./downloads",
 		},
 	}
@@ -299,9 +294,6 @@ func TestConvertPathsToAbsolute(t *testing.T) {
 	}
 	if cfg.Log.Dir != filepath.Join(execDir, "logs") {
 		t.Errorf("Log.Dir = %q, want %q", cfg.Log.Dir, filepath.Join(execDir, "logs"))
-	}
-	if cfg.Download.TempDir != filepath.Join(execDir, "temp") {
-		t.Errorf("Download.TempDir = %q, want %q", cfg.Download.TempDir, filepath.Join(execDir, "temp"))
 	}
 	if cfg.Download.OutputDir != filepath.Join(execDir, "downloads") {
 		t.Errorf("Download.OutputDir = %q, want %q", cfg.Download.OutputDir, filepath.Join(execDir, "downloads"))

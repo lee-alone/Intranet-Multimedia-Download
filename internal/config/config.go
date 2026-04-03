@@ -84,7 +84,6 @@ type DownloadConfig struct {
 	MaxRetries int      `yaml:"max_retries"`
 	Timeout    int      `yaml:"timeout"`
 	MaxSize    int64    `yaml:"max_file_size"`
-	TempDir    string   `yaml:"temp_dir"`
 	OutputDir  string   `yaml:"output_dir"`
 	Whitelist  []string `yaml:"whitelist"`
 }
@@ -205,11 +204,6 @@ func (c *Config) convertPathsToAbsolute() {
 	}
 
 	// 转换下载相关路径
-	if !filepath.IsAbs(c.Download.TempDir) {
-		oldPath := c.Download.TempDir
-		c.Download.TempDir = filepath.Join(c.execDir, c.Download.TempDir)
-		log.Printf("Converted temp dir: %s -> %s", oldPath, c.Download.TempDir)
-	}
 	if !filepath.IsAbs(c.Download.OutputDir) {
 		oldPath := c.Download.OutputDir
 		c.Download.OutputDir = filepath.Join(c.execDir, c.Download.OutputDir)
@@ -325,9 +319,6 @@ func setDefaults(cfg *Config) {
 	}
 	if cfg.Download.MaxSize == 0 {
 		cfg.Download.MaxSize = 10737418240 // 10GB
-	}
-	if cfg.Download.TempDir == "" {
-		cfg.Download.TempDir = "./temp"
 	}
 	if cfg.Download.OutputDir == "" {
 		cfg.Download.OutputDir = "./downloads"

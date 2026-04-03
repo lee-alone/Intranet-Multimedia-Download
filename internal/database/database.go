@@ -4,10 +4,12 @@ package database
 import (
 	"database/sql"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sync"
 
+	"github.com/campus/collector"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -121,13 +123,8 @@ func containsPathTraversal(s string) bool {
 }
 
 // RunMigrations 运行数据库迁移
-func RunMigrations(migrationsDir string) error {
-	// 读取迁移目录
-	entries, err := os.ReadDir(migrationsDir)
-	if err != nil {
-		return fmt.Errorf("failed to read migrations directory: %w", err)
-	}
-
+// 迁移文件已嵌入到二进制中，不需要外部 migrations 目录
+func RunMigrations(_ string) error {
 	// 创建迁移记录表
 	if _, err := db.Exec(`
 		CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -136,6 +133,12 @@ func RunMigrations(migrationsDir string) error {
 		)
 	`); err != nil {
 		return fmt.Errorf("failed to create migrations table: %w", err)
+	}
+
+	// 从嵌入的文件系统中读取迁移文件
+	entries, err := fs.ReadDir(collector.MigrationsFS, "migrations")
+	if err != nil {
+		return fmt.Errorf("failed to read embedded migrations directory: %w", err)
 	}
 
 	// 执行每个迁移文件
@@ -161,11 +164,11 @@ func RunMigrations(migrationsDir string) error {
 			continue
 		}
 
-		// 读取迁移文件 - 使用清理后的路径
-		// #nosec G304 -- migrationsDir 是内部定义的目录，filename 经过验证
-		content, err := os.ReadFile(filepath.Join(migrationsDir, filename))
+		// 从嵌入文件系统中读取迁移文件
+		// 注意：embed.FS 始终使用正斜杠 / 作为路径分隔符，不能使用 filepath.Join
+		content, err := fs.ReadFile(collector.MigrationsFS, "migrations/"+filename)
 		if err != nil {
-			return fmt.Errorf("failed to read migration file: %w", err)
+			return fmt.Errorf("failed to read embedded migration file %s: %w", filename, err)
 		}
 
 		// 执行迁移

@@ -60,18 +60,12 @@ func main() {
 		log.Println("默认管理员账号功能已禁用")
 	}
 
-	// 确保下载目录和临时目录存在（相对于程序根目录）
+	// 确保下载目录存在（相对于程序根目录）
 	downloadDir := filepath.Join(execDir, "downloads")
 	if err := os.MkdirAll(downloadDir, 0755); err != nil {
 		log.Fatalf("Failed to create downloads directory: %v", err)
 	}
 	log.Printf("Downloads directory: %s", downloadDir)
-
-	tempDir := filepath.Join(execDir, "temp")
-	if err := os.MkdirAll(tempDir, 0755); err != nil {
-		log.Fatalf("Failed to create temp directory: %v", err)
-	}
-	log.Printf("Temp directory: %s", tempDir)
 
 	// 创建任务调度器
 	schedulerConfig := engine.DefaultSchedulerConfig()

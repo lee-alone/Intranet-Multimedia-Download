@@ -1,13 +1,14 @@
 @echo off
+chcp 936 >nul
 REM ============================================
-REM Windows 编译脚本 - 校园资源采集系统
-REM 需要安装 TDM-GCC 或 MinGW 来支持 CGO
-REM 需要安装 Node.js 来构建前端资源
+REM Windows ����ű� - У԰��Դ�ɼ�ϵͳ
+REM ��Ҫ��װ TDM-GCC �� MinGW ��֧�� CGO
+REM ��Ҫ��װ Node.js ������ǰ����Դ
 REM ============================================
 
 setlocal enabledelayedexpansion
 
-REM 设置变量
+REM ���ñ���
 set PROJECT_NAME=collector
 set OUTPUT_DIR=bin
 set RELEASE_DIR=release
@@ -15,129 +16,129 @@ set MAIN_PATH=cmd/server/main.go
 set BUILD_TIME=%DATE% %TIME%
 set VERSION=1.0.0
 
-REM 获取脚本所在目录的绝对路径 (scripts 目录)
+REM ��ȡ�ű�����Ŀ¼�ľ���·�� (scripts Ŀ¼)
 set SCRIPT_DIR=%~dp0
-REM 计算项目根目录 (去掉末尾的 'scripts\' 部分，保留末尾反斜杠)
+REM ������Ŀ��Ŀ¼ (ȥ��ĩβ�� 'scripts\' ���֣�����ĩβ��б��)
 set PROJECT_ROOT=%SCRIPT_DIR:~0,-9%
 
-REM 检查 Go 环境
-echo [1/6] 检查 Go 环境...
+REM ��� Go ����
+echo ^[1/6^] ��� Go ����...
 go version >nul 2>&1
 if %errorlevel% neq 0 (
-    echo [错误] 未检测到 Go 环境，请先安装 Go: https://go.dev/dl/
+    echo ^[����^] δ��⵽ Go ���������Ȱ�װ Go: https://go.dev/dl/
     pause
     exit /b 1
 )
 go version
 
-REM 检查 GCC 环境 (CGO 需要)
-echo [2/6] 检查 GCC 环境...
+REM ��� GCC ���� (CGO ��Ҫ)
+echo ^[2/6^] ��� GCC ����...
 where gcc >nul 2>&1
 if %errorlevel% neq 0 (
-    echo [错误] 未检测到 GCC 环境，请安装 TDM-GCC 或 MinGW
-    echo 下载地址：https://jmeubank.github.io/tdm-gcc/
+    echo ^[����^] δ��⵽ GCC �������밲װ TDM-GCC �� MinGW
+    echo ���ص�ַ��https://jmeubank.github.io/tdm-gcc/
     pause
     exit /b 1
 )
 gcc --version | findstr /C:"gcc"
-echo GCC 环境检查通过
+echo GCC �������ͨ��
 
-REM 检查 Node.js 环境
-echo [3/6] 检查 Node.js 环境...
+REM ��� Node.js ����
+echo ^[3/6^] ��� Node.js ����...
 where node >nul 2>&1
 if %errorlevel% neq 0 (
-    echo [警告] 未检测到 Node.js 环境
-    echo 如果前端资源已构建，可跳过此步骤
-    echo 下载地址：https://nodejs.org/
+    echo ^[����^] δ��⵽ Node.js ����
+    echo ���ǰ����Դ�ѹ������������˲���
+    echo ���ص�ַ��https://nodejs.org/
 ) else (
     node --version
-    echo Node.js 环境检查通过
+    echo Node.js �������ͨ��
 )
 
-REM 创建输出目录
-echo [4/6] 创建输出目录...
+REM �������Ŀ¼
+echo ^[4/6^] �������Ŀ¼...
 if not exist "%PROJECT_ROOT%\%OUTPUT_DIR%" (
   mkdir "%PROJECT_ROOT%\%OUTPUT_DIR%"
-  echo 已创建目录：%PROJECT_ROOT%\%OUTPUT_DIR%
+  echo �Ѵ���Ŀ¼��%PROJECT_ROOT%\%OUTPUT_DIR%
 )
 if not exist "%PROJECT_ROOT%\%RELEASE_DIR%" (
   mkdir "%PROJECT_ROOT%\%RELEASE_DIR%"
-  echo 已创建目录：%PROJECT_ROOT%\%RELEASE_DIR%
+  echo �Ѵ���Ŀ¼��%PROJECT_ROOT%\%RELEASE_DIR%
 )
 
-REM 构建前端资源
-echo [5/6] 构建前端资源...
+REM ����ǰ����Դ
+echo ^[5/6^] ����ǰ����Դ...
 pushd "%PROJECT_ROOT%\web"
 if exist "node_modules" (
-  echo 检测到 node_modules，执行 npm build...
+  echo ��⵽ node_modules��ִ�� npm build...
   call npm run build
   if %errorlevel% neq 0 (
-    echo [错误] 前端构建失败！
+    echo ^[����^] ǰ�˹���ʧ�ܣ�
     popd
     pause
     exit /b 1
   )
 ) else (
-  echo 未检测到 node_modules，先执行 npm install...
+  echo δ��⵽ node_modules����ִ�� npm install...
   call npm install
   if %errorlevel% neq 0 (
-    echo [错误] npm install 失败！
+    echo ^[����^] npm install ʧ�ܣ�
     popd
     pause
     exit /b 1
   )
   call npm run build
   if %errorlevel% neq 0 (
-    echo [错误] 前端构建失败！
+    echo ^[����^] ǰ�˹���ʧ�ܣ�
     popd
     pause
     exit /b 1
   )
 )
 popd
-echo 前端构建完成
+echo ǰ�˹������
 
-REM 检查 web/dist 是否存在
+REM ��� web/dist �Ƿ����
 if not exist "%PROJECT_ROOT%\web\dist" (
-  echo [错误] 前端构建产物目录 web\dist 不存在！
-  echo 请检查前端构建是否成功
+  echo ^[����^] ǰ�˹�������Ŀ¼ web\dist �����ڣ�
+  echo ����ǰ�˹����Ƿ�ɹ�
   pause
   exit /b 1
 )
 
-REM 编译项目
-echo [6/6] 开始编译 Windows 版本 (CGO 启用)...
-REM 设置环境变量
+REM ������Ŀ
+echo ^[6/6^] ��ʼ���� Windows �汾 (CGO ����)...
+REM ���û�������
 set CGO_ENABLED=1
 set GOOS=windows
 set GOARCH=amd64
 set CC=gcc
 
-REM 显示编译信息
+REM ��ʾ������Ϣ
 echo Go Version:
 go version
 echo GCC Path:
 where gcc
-echo 开始编译...
+echo ��ʼ����...
 
 go build -ldflags="-s -w -X 'main.buildTime=%BUILD_TIME%'" -o "%PROJECT_ROOT%\%OUTPUT_DIR%\%PROJECT_NAME%.exe" "%PROJECT_ROOT%\%MAIN_PATH%"
 
 if %errorlevel% neq 0 (
-    echo [错误] 编译失败！
-    echo 请确保已正确安装 TDM-GCC 或 MinGW
+    echo ^[����^] ����ʧ�ܣ�
+    echo ��ȷ������ȷ��װ TDM-GCC �� MinGW
     pause
     exit /b 1
 )
 
 echo.
 echo ============================================
-echo [成功] 编译完成！
-echo 输出文件：%PROJECT_ROOT%\%OUTPUT_DIR%\%PROJECT_NAME%.exe
+echo [�ɹ�] ������ɣ�
+echo ����ļ���%PROJECT_ROOT%\%OUTPUT_DIR%\%PROJECT_NAME%.exe
 echo ============================================
 
-REM 打包发布文件
+REM ��������ļ�
 echo.
-echo 开始打包发布文件...
+echo ��ʼ��������ļ�...
 set RELEASE_NAME=%PROJECT_NAME%_%VERSION%_windows_amd64
 set RELEASE_PATH=%PROJECT_ROOT%\%RELEASE_DIR%\%RELEASE_NAME%
 
@@ -146,105 +147,103 @@ if exist "%RELEASE_PATH%" (
 )
 mkdir "%RELEASE_PATH%"
 
-REM 复制必要文件
+REM ���Ʊ�Ҫ�ļ�
 copy "%PROJECT_ROOT%\%OUTPUT_DIR%\%PROJECT_NAME%.exe" "%RELEASE_PATH%\"
 copy "%PROJECT_ROOT%\config.yaml.example" "%RELEASE_PATH%\config.yaml"
 copy "%PROJECT_ROOT%\README.md" "%RELEASE_PATH%\"
-xcopy /E /I /Y "%PROJECT_ROOT%\migrations" "%RELEASE_PATH%\migrations"
 
-REM 复制 runtime 目录（包含 yt-dlp 和 lux）
+REM ע�⣺migrations Ŀ¼��Ƕ�뵽�������ļ��У�����Ҫ����
+
+REM ���� runtime Ŀ¼������ yt-dlp �� lux��
 if exist "%PROJECT_ROOT%\runtime" (
   xcopy /E /I /Y "%PROJECT_ROOT%\runtime" "%RELEASE_PATH%\runtime"
-  echo 已复制 runtime 目录
+  echo �Ѹ��� runtime Ŀ¼
 )
 
-REM 创建目录结构
+REM ����Ŀ¼�ṹ
 mkdir "%RELEASE_PATH%\data"
 mkdir "%RELEASE_PATH%\logs"
 mkdir "%RELEASE_PATH%\keys"
 
-REM 复制密钥文件（如果存在）
+REM ������Կ�ļ���������ڣ�
 if exist "%PROJECT_ROOT%\keys\private.pem" (
   copy "%PROJECT_ROOT%\keys\private.pem" "%RELEASE_PATH%\keys\"
-  echo 已复制私钥文件
+  echo �Ѹ���˽Կ�ļ�
 )
 if exist "%PROJECT_ROOT%\keys\public.pem" (
   copy "%PROJECT_ROOT%\keys\public.pem" "%RELEASE_PATH%\keys\"
-  echo 已复制公钥文件
+  echo �Ѹ��ƹ�Կ�ļ�
 )
 
-REM 复制密钥生成脚本
+REM ������Կ���ɽű�
 copy "%PROJECT_ROOT%\scripts\generate-keys.bat" "%RELEASE_PATH%\"
 
-REM 创建.gitignore 文件
+REM ����.gitignore �ļ�
 (
-echo # 忽略运行时生成的文件
+echo # ��������ʱ���ɵ��ļ�
 echo *.db
 echo *.sqlite
 echo *.sqlite3
 echo.
-echo # 忽略日志文件
+echo # ������־�ļ�
 echo logs/*
-echo !logs/.gitkeep
+echo ^!logs/.gitkeep
 echo.
-echo # 忽略数据文件
+echo # ���������ļ�
 echo data/*
-echo !data/.gitkeep
+echo ^!data/.gitkeep
 echo.
-echo # 忽略临时文件
-echo temp/*
-echo !temp/.gitkeep
+echo # ���������ļ�
 echo downloads/*
-echo !downloads/.gitkeep
+echo ^!downloads/.gitkeep
 echo.
-echo # 忽略密钥文件（重要！）
+echo # ������Կ�ļ�����Ҫ����
 echo keys/private.pem
 echo keys/*.pem
-echo !keys/.gitkeep
-echo !keys/public.pem
+echo ^!keys/.gitkeep
+echo ^!keys/public.pem
 echo.
-echo # 忽略配置文件
+echo # ���������ļ�
 echo config.yaml
 ) > "%RELEASE_PATH%\.gitignore"
 
-REM 创建 README 说明
+REM ���� README ˵��
 (
-echo # 校园资源采集系统 - 运行说明
+echo # У԰��Դ�ɼ�ϵͳ - ����˵��
 echo.
-echo ## 首次运行步骤
+echo ## �״����в���
 echo.
-echo 1. 生成 JWT 密钥对（仅首次运行需要）:
-echo - Windows: 运行 generate-keys.bat
-echo - Linux: 运行 ./generate-keys.sh
-echo - 或手动执行：go run cmd/keygen/main.go
+echo 1. ���� JWT ��Կ�ԣ����״�������Ҫ��:
+echo - Windows: ���� generate-keys.bat
+echo - Linux: ���� ./generate-keys.sh
+echo - ���ֶ�ִ�У�go run cmd/keygen/main.go
 echo.
-echo 2. 配置应用程序:
-echo - 复制 config.yaml.example 为 config.yaml
-echo - 修改配置文件中的数据库路径、端口等设置
+echo 2. ����Ӧ�ó���:
+echo - ���� config.yaml.example Ϊ config.yaml
+echo - �޸������ļ��е����ݿ�·�����˿ڵ�����
 echo.
-echo 3. 运行程序:
+echo 3. ���г���:
 echo - Windows: .\collector.exe
 echo - Linux: ./collector
 echo.
-echo ## 目录结构
-echo - bin/ - 编译后的可执行文件
-echo - config.yaml - 配置文件
-echo - data/ - 数据库文件目录
-echo - keys/ - JWT 密钥文件目录
-echo - logs/ - 日志文件目录
-echo - migrations/ - 数据库迁移文件
-echo - temp/ - 临时下载目录
-echo - downloads/ - 下载完成文件目录
+echo ## Ŀ¼�ṹ
+echo - bin/ - �����Ŀ�ִ���ļ�
+echo - config.yaml - �����ļ�
+echo - data/ - ���ݿ��ļ�Ŀ¼
+echo - keys/ - JWT ��Կ�ļ�Ŀ¼
+echo - logs/ - ��־�ļ�Ŀ¼
+echo - runtime/ - �ⲿ���ع��� ^(yt-dlp, lux^)
+echo - downloads/ - ��������ļ�Ŀ¼
 echo.
-echo ## 注意事项
-echo 1. 私钥文件 (keys/private.pem) 请妥善保管，不要泄露
-echo 2. 不要将私钥提交到版本控制系统
-echo 3. 生产环境建议使用 4096 位密钥
+echo ## ע������
+echo 1. ˽Կ�ļ� ^(keys/private.pem^) �����Ʊ��ܣ���Ҫй¶
+echo 2. ��Ҫ��˽Կ�ύ���汾����ϵͳ
+echo 3. ������������ʹ�� 4096 λ��Կ
 ) > "%RELEASE_PATH%\RUNTIME.md"
 
 echo.
 echo ============================================
-echo [成功] 发布包已创建！
-echo 发布路径：%RELEASE_PATH%
+echo [�ɹ�] �������Ѵ�����
+echo ����·����%RELEASE_PATH%
 echo ============================================
 pause

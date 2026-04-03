@@ -1,27 +1,27 @@
-# 蹇界暐杩愯鏃剁敓鎴愮殑鏂囦欢
+# 忽略运行时生成的文件
 *.db
 *.sqlite
 *.sqlite3
 
-# 蹇界暐鏃ュ織鏂囦欢
+# 忽略日志文件
 logs/*
 logs/.gitkeep
 
-# 蹇界暐鏁版嵁鏂囦欢
+# 忽略数据文件
 data/*
 data/.gitkeep
 
-# 蹇界暐涓存椂鏂囦欢
+# 忽略临时文件
 temp/*
 temp/.gitkeep
 downloads/*
 downloads/.gitkeep
 
-# 蹇界暐瀵嗛挜鏂囦欢锛堥噸瑕侊紒锛?
+# 忽略密钥文件（重要！）
 keys/private.pem
 keys/*.pem
 keys/.gitkeep
 keys/public.pem
 
-# 蹇界暐閰嶇疆鏂囦欢
+# 忽略配置文件
 config.yaml
