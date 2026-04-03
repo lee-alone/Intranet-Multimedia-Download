@@ -247,8 +247,8 @@ onBeforeUnmount(() => {
                 {{ task.priority === 'high' ? '高' : task.priority === 'normal' ? '普通' : '低' }}
               </span>
             </td>
-            <td class="px-6 py-4 whitespace-nowrap">
-              <TaskProgressBar :progress="task.progress" :status="task.status" />
+            <td class="px-6 py-4 whitespace-nowrap min-w-[140px]">
+              <TaskProgressBar :progress="task.progress" :status="task.status" :show-label="true" />
             </td>
             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
               {{ formatTime(task.createdAt) }}
