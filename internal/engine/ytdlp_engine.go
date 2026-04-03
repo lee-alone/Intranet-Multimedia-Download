@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -20,6 +21,7 @@ type YtdlpEngine struct {
 	status        EngineStatus
 	lastError     error
 	commandRunner CommandRunner
+	lastProgressMu sync.Mutex
 }
 
 // YtdlpEngine 配置
@@ -117,6 +119,8 @@ func (e *YtdlpEngine) Download(ctx context.Context, url string, options Download
 		var result DownloadResult
 		var lastProgress *DownloadProgress
 		var videoTitle string
+		var lastProgressMu sync.Mutex
+		var errorSent bool // 跟踪是否已发送错误信息
 
 		// 首先获取视频标题（在下载前）
 		// 使用 --encoding UTF-8 强制输出 UTF-8 编码，避免 Windows GBK 乱码
@@ -252,7 +256,23 @@ func (e *YtdlpEngine) Download(ctx context.Context, url string, options Download
 				if prog, ok := e.parseProgress(line); ok {
 					prog.Status = line
 					safeSendProgress(progressChan, *prog)
+					lastProgressMu.Lock()
 					lastProgress = prog
+					lastProgressMu.Unlock()
+				} else if strings.Contains(strings.ToLower(line), "error") {
+					// 捕获错误信息并发送到通道
+					lastProgressMu.Lock()
+					pct := 0.0
+					if lastProgress != nil {
+						pct = lastProgress.Percent
+					}
+					errProg := &DownloadProgress{
+						Percent: pct,
+						Status:  "error: " + line,
+					}
+					safeSendProgress(progressChan, *errProg)
+					errorSent = true
+					lastProgressMu.Unlock()
 				}
 				// 解析文件路径 [download] Destination: /path/to/file
 				if strings.Contains(line, "[download] Destination:") {
@@ -261,9 +281,11 @@ func (e *YtdlpEngine) Download(ctx context.Context, url string, options Download
 					if !filepath.IsAbs(filePath) && options.OutputDir != "" {
 						filePath = filepath.Join(options.OutputDir, filePath)
 					}
+					lastProgressMu.Lock()
 					if lastProgress != nil {
 						lastProgress.FilePath = filePath
 					}
+					lastProgressMu.Unlock()
 				}
 				// 解析合并后的文件路径 [Merger] Merging formats into "/path/to/file"
 				// 这对于Bilibili等需要合并音视频的网站很重要
@@ -275,9 +297,11 @@ func (e *YtdlpEngine) Download(ctx context.Context, url string, options Download
 					if !filepath.IsAbs(filePath) && options.OutputDir != "" {
 						filePath = filepath.Join(options.OutputDir, filePath)
 					}
+					lastProgressMu.Lock()
 					if lastProgress != nil {
 						lastProgress.FilePath = filePath
 					}
+					lastProgressMu.Unlock()
 				}
 			}
 		}()
@@ -290,7 +314,23 @@ func (e *YtdlpEngine) Download(ctx context.Context, url string, options Download
 				if prog, ok := e.parseProgress(line); ok {
 					prog.Status = line
 					safeSendProgress(progressChan, *prog)
+					lastProgressMu.Lock()
 					lastProgress = prog
+					lastProgressMu.Unlock()
+				} else if strings.Contains(strings.ToLower(line), "error") {
+					// 捕获错误信息并发送到通道
+					lastProgressMu.Lock()
+					pct := 0.0
+					if lastProgress != nil {
+						pct = lastProgress.Percent
+					}
+					errProg := &DownloadProgress{
+						Percent: pct,
+						Status:  "error: " + line,
+					}
+					safeSendProgress(progressChan, *errProg)
+					errorSent = true
+					lastProgressMu.Unlock()
 				}
 				// 解析文件路径 [download] Destination: /path/to/file
 				if strings.Contains(line, "[download] Destination:") {
@@ -299,9 +339,11 @@ func (e *YtdlpEngine) Download(ctx context.Context, url string, options Download
 					if !filepath.IsAbs(filePath) && options.OutputDir != "" {
 						filePath = filepath.Join(options.OutputDir, filePath)
 					}
+					lastProgressMu.Lock()
 					if lastProgress != nil {
 						lastProgress.FilePath = filePath
 					}
+					lastProgressMu.Unlock()
 				}
 				// 解析合并后的文件路径 [Merger] Merging formats into "/path/to/file"
 				// 这对于Bilibili等需要合并音视频的网站很重要
@@ -313,9 +355,11 @@ func (e *YtdlpEngine) Download(ctx context.Context, url string, options Download
 					if !filepath.IsAbs(filePath) && options.OutputDir != "" {
 						filePath = filepath.Join(options.OutputDir, filePath)
 					}
+					lastProgressMu.Lock()
 					if lastProgress != nil {
 						lastProgress.FilePath = filePath
 					}
+					lastProgressMu.Unlock()
 				}
 			}
 		}()
@@ -323,7 +367,29 @@ func (e *YtdlpEngine) Download(ctx context.Context, url string, options Download
 		// 等待命令完成
 		err = cmd.Wait()
 
+		// 如果进程异常退出且未发送过错误信息，构造错误进度发送
+		if err != nil && !errorSent {
+			lastProgressMu.Lock()
+			pct := 0.0
+			var fp, title string
+			if lastProgress != nil {
+				pct = lastProgress.Percent
+				fp = lastProgress.FilePath
+				title = lastProgress.Title
+			}
+			errProg := DownloadProgress{
+				Percent:  pct,
+				Status:   "error: download failed: " + err.Error(),
+				FilePath: fp,
+				Title:    title,
+			}
+			safeSendProgress(progressChan, errProg)
+			errorSent = true
+			lastProgressMu.Unlock()
+		}
+
 		// 下载完成后，如果指定了 TaskID 但文件路径不是 TaskID，则重命名文件
+		lastProgressMu.Lock()
 		if options.TaskID != "" && lastProgress != nil && lastProgress.FilePath != "" {
 			dir := filepath.Dir(lastProgress.FilePath)
 			baseName := filepath.Base(lastProgress.FilePath)
@@ -346,11 +412,13 @@ func (e *YtdlpEngine) Download(ctx context.Context, url string, options Download
 				}
 			}
 		}
+		lastProgressMu.Unlock()
 
 		// 发送最终进度（包含文件路径和标题）
+		lastProgressMu.Lock()
 		if lastProgress != nil {
 			// 如果下载完成但没有文件路径，尝试在输出目录中查找 TaskID 文件
-			if lastProgress.Percent >= 100 && lastProgress.FilePath == "" && options.TaskID != "" && options.OutputDir != "" {
+			if lastProgress.Percent >= 100 && lastProgress.FilePath == "" && options.TaskID != "" && options.OutputDir != "" && !errorSent {
 				// 尝试查找 TaskID.mp4 或其他扩展名
 				videoExts := []string{".mp4", ".mkv", ".webm", ".avi", ".mov", ".flv", ".wmv", ".m4v"}
 				for _, ext := range videoExts {
@@ -360,18 +428,18 @@ func (e *YtdlpEngine) Download(ctx context.Context, url string, options Download
 						break
 					}
 				}
-			}
 
-			// 如果还是没有文件路径，尝试使用 yt-dlp 获取文件名
-			if lastProgress.Percent >= 100 && lastProgress.FilePath == "" {
-				if options.OutputDir != "" {
-					// 使用 yt-dlp 获取实际文件名
-					cmd := exec.Command(e.execPath, "--simulate", "--print", "filename", url)
-					output, err := cmd.Output()
-					if err == nil {
-						filename := strings.TrimSpace(string(output))
-						if filename != "" {
-							lastProgress.FilePath = filepath.Join(options.OutputDir, filename)
+				// 如果还是没有文件路径，尝试使用 yt-dlp 获取文件名
+				if lastProgress.FilePath == "" {
+					if options.OutputDir != "" {
+						// 使用 yt-dlp 获取实际文件名
+						cmd := exec.Command(e.execPath, "--simulate", "--print", "filename", url)
+						output, err := cmd.Output()
+						if err == nil {
+							filename := strings.TrimSpace(string(output))
+							if filename != "" {
+								lastProgress.FilePath = filepath.Join(options.OutputDir, filename)
+							}
 						}
 					}
 				}
@@ -391,7 +459,14 @@ func (e *YtdlpEngine) Download(ctx context.Context, url string, options Download
 					}
 				}
 			}
-			safeSendProgress(progressChan, *lastProgress)
+			finalProgress := *lastProgress
+			lastProgressMu.Unlock()
+			// 仅在非错误状态下发送最终进度
+			if !errorSent {
+				safeSendProgress(progressChan, finalProgress)
+			}
+		} else {
+			lastProgressMu.Unlock()
 		}
 
 		// 处理结果
@@ -403,9 +478,15 @@ func (e *YtdlpEngine) Download(ctx context.Context, url string, options Download
 			e.status = EngineStatusError
 			e.lastError = result.Error
 		} else {
+			lastProgressMu.Lock()
+			statusVal := ""
+			if lastProgress != nil {
+				statusVal = lastProgress.Status
+			}
+			lastProgressMu.Unlock()
 			result = DownloadResult{
 				Success:    true,
-				OutputPath: lastProgress.Status,
+				OutputPath: statusVal,
 			}
 			e.status = EngineStatusIdle
 		}

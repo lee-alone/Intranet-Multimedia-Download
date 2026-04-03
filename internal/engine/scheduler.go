@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -304,28 +305,44 @@ func (s *TaskScheduler) executeTask(task *Task) {
 		if p.Title != "" {
 			task.Title = p.Title
 		}
+		// 同步文件路径
+		if p.FilePath != "" {
+			task.FilePath = p.FilePath
+		}
 		s.notifyTaskUpdate(task)
-		if p.Status != "" && (p.Status == "error" || containsIgnoreCase(p.Status, "error")) {
+		// 检测错误：如果状态包含 error 关键字，标记为错误
+		if p.Status != "" && (strings.HasPrefix(p.Status, "error") || containsIgnoreCase(p.Status, "error")) {
 			hasError = true
 		}
 	}
 	if hasError {
 		task.TransitionStatus(TaskStatusFailed)
 		task.Error = fmt.Errorf("下载失败：%s", lastProgress.Status)
+		s.notifyTaskUpdate(task)
 	} else {
-		// 先转换到 Merging 状态，然后再转换到 Completed
-		task.TransitionStatus(TaskStatusMerging)
-		s.notifyTaskUpdate(task)
-		// 使用 DownloadProgress 中的 FilePath 和 Title 字段
-		task.FilePath = lastProgress.FilePath
-		if lastProgress.Title != "" {
-			task.Title = lastProgress.Title
+		// 验证：只有在进度接近或达到 100% 时才能标记为完成
+		// 如果最后一次进度小于 90%，说明可能异常退出
+		if lastProgress.Percent < 90 {
+			task.TransitionStatus(TaskStatusFailed)
+			task.Error = fmt.Errorf("下载异常退出，进度仅 %.1f%%", lastProgress.Percent)
+			s.notifyTaskUpdate(task)
+		} else {
+			// 先转换到 Merging 状态，然后再转换到 Completed
+			task.TransitionStatus(TaskStatusMerging)
+			s.notifyTaskUpdate(task)
+			// 使用 DownloadProgress 中的 FilePath 和 Title 字段
+			if lastProgress.FilePath != "" {
+				task.FilePath = lastProgress.FilePath
+			}
+			if lastProgress.Title != "" {
+				task.Title = lastProgress.Title
+			}
+			task.CompletedAt = time.Now()
+			// 任务完成时强制设置进度为 100%
+			task.SetProgress(DownloadProgress{Percent: 100, Status: "completed"})
+			task.TransitionStatus(TaskStatusCompleted)
+			s.notifyTaskUpdate(task)
 		}
-		task.CompletedAt = time.Now()
-		// 任务完成时强制设置进度为 100%（避免卡在 merging 前的进度）
-		task.SetProgress(DownloadProgress{Percent: 100, Status: "completed"})
-		task.TransitionStatus(TaskStatusCompleted)
-		s.notifyTaskUpdate(task)
 	}
 	s.notifyTaskUpdate(task)
 }

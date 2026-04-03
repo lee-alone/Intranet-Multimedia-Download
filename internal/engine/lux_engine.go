@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -104,6 +105,8 @@ func (e *LuxEngine) Download(ctx context.Context, url string, options DownloadOp
 
 		var result DownloadResult
 		var lastProgress *DownloadProgress
+		var lastProgressMu sync.Mutex
+		var errorSent bool // 跟踪是否已发送错误信息
 
 		// 构建 lux 命令参数
 		args := []string{
@@ -177,7 +180,23 @@ func (e *LuxEngine) Download(ctx context.Context, url string, options DownloadOp
 				if prog, ok := e.parseProgress(line); ok {
 					prog.Status = line
 					safeSendProgress(progressChan, *prog)
+					lastProgressMu.Lock()
 					lastProgress = prog
+					lastProgressMu.Unlock()
+				} else if strings.Contains(strings.ToLower(line), "error") {
+					// 捕获错误信息并发送到通道
+					lastProgressMu.Lock()
+					pct := 0.0
+					if lastProgress != nil {
+						pct = lastProgress.Percent
+					}
+					errProg := &DownloadProgress{
+						Percent: pct,
+						Status:  "error: " + line,
+					}
+					safeSendProgress(progressChan, *errProg)
+					errorSent = true
+					lastProgressMu.Unlock()
 				}
 				// 解析文件路径 - lux 输出格式：Saving to: /path/to/file
 				if strings.Contains(line, "Saving to:") {
@@ -186,9 +205,11 @@ func (e *LuxEngine) Download(ctx context.Context, url string, options DownloadOp
 					if !filepath.IsAbs(filePath) && options.OutputDir != "" {
 						filePath = filepath.Join(options.OutputDir, filePath)
 					}
+					lastProgressMu.Lock()
 					if lastProgress != nil {
 						lastProgress.FilePath = filePath
 					}
+					lastProgressMu.Unlock()
 				}
 			}
 		}()
@@ -201,7 +222,23 @@ func (e *LuxEngine) Download(ctx context.Context, url string, options DownloadOp
 				if prog, ok := e.parseProgress(line); ok {
 					prog.Status = line
 					safeSendProgress(progressChan, *prog)
+					lastProgressMu.Lock()
 					lastProgress = prog
+					lastProgressMu.Unlock()
+				} else if strings.Contains(strings.ToLower(line), "error") {
+					// 捕获错误信息并发送到通道
+					lastProgressMu.Lock()
+					pct := 0.0
+					if lastProgress != nil {
+						pct = lastProgress.Percent
+					}
+					errProg := &DownloadProgress{
+						Percent: pct,
+						Status:  "error: " + line,
+					}
+					safeSendProgress(progressChan, *errProg)
+					errorSent = true
+					lastProgressMu.Unlock()
 				}
 				// 解析文件路径 - lux 输出格式：Saving to: /path/to/file
 				if strings.Contains(line, "Saving to:") {
@@ -210,9 +247,11 @@ func (e *LuxEngine) Download(ctx context.Context, url string, options DownloadOp
 					if !filepath.IsAbs(filePath) && options.OutputDir != "" {
 						filePath = filepath.Join(options.OutputDir, filePath)
 					}
+					lastProgressMu.Lock()
 					if lastProgress != nil {
 						lastProgress.FilePath = filePath
 					}
+					lastProgressMu.Unlock()
 				}
 			}
 		}()
@@ -220,9 +259,31 @@ func (e *LuxEngine) Download(ctx context.Context, url string, options DownloadOp
 		// 等待命令完成
 		err = cmd.Wait()
 
+		// 如果进程异常退出且未发送过错误信息，构造错误进度发送
+		if err != nil && !errorSent {
+			lastProgressMu.Lock()
+			pct := 0.0
+			var fp, title string
+			if lastProgress != nil {
+				pct = lastProgress.Percent
+				fp = lastProgress.FilePath
+				title = lastProgress.Title
+			}
+			errProg := DownloadProgress{
+				Percent:  pct,
+				Status:   "error: download failed: " + err.Error(),
+				FilePath: fp,
+				Title:    title,
+			}
+			safeSendProgress(progressChan, errProg)
+			errorSent = true
+			lastProgressMu.Unlock()
+		}
+
 		// 发送最终进度（包含文件路径）
+		lastProgressMu.Lock()
 		if lastProgress != nil {
-			if lastProgress.Percent >= 100 && lastProgress.FilePath == "" {
+			if lastProgress.Percent >= 100 && lastProgress.FilePath == "" && !errorSent {
 				// 如果下载完成但没有文件路径，尝试从输出目录构建
 				if options.OutputDir != "" {
 					// lux 默认使用当前目录，这里假设文件在输出目录中
@@ -240,7 +301,14 @@ func (e *LuxEngine) Download(ctx context.Context, url string, options DownloadOp
 					}
 				}
 			}
-			safeSendProgress(progressChan, *lastProgress)
+			finalProgress := *lastProgress
+			lastProgressMu.Unlock()
+			// 仅在非错误状态下发送最终进度
+			if !errorSent {
+				safeSendProgress(progressChan, finalProgress)
+			}
+		} else {
+			lastProgressMu.Unlock()
 		}
 
 		// 处理结果
@@ -252,9 +320,15 @@ func (e *LuxEngine) Download(ctx context.Context, url string, options DownloadOp
 			e.status = EngineStatusError
 			e.lastError = result.Error
 		} else {
+			lastProgressMu.Lock()
+			statusVal := ""
+			if lastProgress != nil {
+				statusVal = lastProgress.Status
+			}
+			lastProgressMu.Unlock()
 			result = DownloadResult{
 				Success:    true,
-				OutputPath: lastProgress.Status,
+				OutputPath: statusVal,
 			}
 			e.status = EngineStatusIdle
 		}
