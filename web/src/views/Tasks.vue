@@ -235,7 +235,12 @@ onBeforeUnmount(() => {
               </a>
             </td>
             <td class="px-6 py-4 whitespace-nowrap">
-              <TaskStatusBadge :status="task.status" :message="task.message" :show-message="true" />
+              <TaskStatusBadge 
+                :status="task.status" 
+                :message="task.message" 
+                :error="task.error"
+                :show-message="true" 
+              />
             </td>
             <td class="px-6 py-4 whitespace-nowrap">
               <span :class="[

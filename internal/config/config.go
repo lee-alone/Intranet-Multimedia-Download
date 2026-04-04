@@ -40,6 +40,7 @@ type Config struct {
 	Log      LogConfig      `yaml:"log"`
 	Security SecurityConfig `yaml:"security"`
 	Alert    AlertConfig    `yaml:"alert"`
+	Audit    AuditConfig    `yaml:"audit"`
 	execDir  string // 二进制文件所在目录
 }
 
@@ -120,6 +121,13 @@ type AlertConfig struct {
 	EmailAuthType     string   `yaml:"email_auth_type"`
 	EnableLogAlert    bool     `yaml:"enable_log_alert"`
 	LogAlertThreshold int      `yaml:"log_alert_threshold"`
+}
+
+// AuditConfig 审计日志配置
+type AuditConfig struct {
+	Enabled     bool   `yaml:"enabled"`      // 是否启用审计日志
+	LogDir      string `yaml:"log_dir"`      // 日志目录
+	FileEnabled bool   `yaml:"file_enabled"` // 是否同时写入文件
 }
 
 // LDAPConfig LDAP 配置
@@ -322,6 +330,17 @@ func setDefaults(cfg *Config) {
 	}
 	if cfg.Log.MaxAge == 0 {
 		cfg.Log.MaxAge = 7
+	}
+
+	// 审计日志配置
+	if !cfg.Audit.Enabled {
+		cfg.Audit.Enabled = false // 默认关闭
+	}
+	if cfg.Audit.LogDir == "" {
+		cfg.Audit.LogDir = "./audit_logs"
+	}
+	if !cfg.Audit.FileEnabled {
+		cfg.Audit.FileEnabled = false // 默认不写入文件
 	}
 
 	// 安全配置

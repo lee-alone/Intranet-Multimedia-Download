@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/campus/collector/internal/audit"
 	"github.com/campus/collector/internal/auth"
 	"github.com/campus/collector/internal/config"
 	"github.com/campus/collector/internal/database"
@@ -65,7 +66,7 @@ func main() {
 	schedulerConfig.MaxConcurrent = cfg.Download.Concurrent
 	scheduler := engine.NewTaskScheduler(nil, schedulerConfig)
 
-	// 创建下载引擎（使用相对于程序根目录的路径）
+	// 创建 yt-dlp 下载引擎（使用相对于程序根目录的路径）
 	ytdlp := engine.NewYtdlpEngine(engine.YtdlpConfig{
 		ExecPath:   filepath.Join(execDir, "runtime", "yt-dlp.exe"),
 		OutputDir:  downloadDir,
@@ -73,19 +74,19 @@ func main() {
 		MaxRetries: 3,
 	})
 
-	lux := engine.NewLuxEngine(engine.LuxConfig{
-		ExecPath:  filepath.Join(execDir, "runtime", "lux.exe"),
-		OutputDir: downloadDir,
-	})
+	// 直接将 yt-dlp 注入调度器（单引擎架构，简化维护）
+	scheduler.SetEngine(ytdlp)
 
-	// 创建故障转移引擎
-	failoverConfig := engine.DefaultFailoverConfig()
-	failoverConfig.MaxFailures = 3
-	failoverConfig.CooldownTime = 10 * time.Minute
-	engineWrapper := engine.NewFailoverEngine(ytdlp, lux, failoverConfig)
-
-	// 将引擎注入调度器
-	scheduler.SetEngine(engineWrapper)
+	// 创建审计日志记录器（如果启用）
+	if cfg.Audit.Enabled {
+		auditLogger, err := audit.NewLogger(cfg.Audit.LogDir, cfg.Audit.FileEnabled)
+		if err != nil {
+			log.Printf("警告：创建审计日志记录器失败：%v", err)
+		} else {
+			scheduler.SetAuditLogger(auditLogger)
+			log.Printf("审计日志已启用，日志目录: %s", cfg.Audit.LogDir)
+		}
+	}
 
 	// 创建服务器（传入 downloadDir 用于 TaskHandler）
 	srv, err := server.New(cfg, db, scheduler, downloadDir)

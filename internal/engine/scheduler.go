@@ -9,6 +9,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/campus/collector/internal/audit"
 )
 
 // TaskStatus 任务状态
@@ -170,6 +172,7 @@ type TaskScheduler struct {
 	semaphore        chan struct{}
 	taskChan         chan *Task
 	running          int32
+	auditLogger      *audit.Logger // 审计日志记录器
 }
 
 // NewTaskScheduler 创建任务调度器
@@ -213,6 +216,13 @@ func (s *TaskScheduler) SetOnProgressUpdate(fn func(task *Task)) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.onProgressUpdate = fn
+}
+
+// SetAuditLogger 设置审计日志记录器
+func (s *TaskScheduler) SetAuditLogger(logger *audit.Logger) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.auditLogger = logger
 }
 
 func (s *TaskScheduler) consumerLoop() {
@@ -316,16 +326,31 @@ func (s *TaskScheduler) executeTask(task *Task) {
 		}
 	}
 	if hasError {
+		// 关键增强：将错误详细信息输出到系统控制台
+		errMsg := lastProgress.Status
+		log.Printf("[FAILED] 任务 %s (UE-HIDDEN: %s) 失败！ 使用引擎: %s | URL: %s | 错误详情: %s",
+			task.ID, task.ID[:min(6, len(task.ID))], task.Engine, task.URL, errMsg)
+
 		task.TransitionStatus(TaskStatusFailed)
-		task.Error = fmt.Errorf("下载失败：%s", lastProgress.Status)
+		task.Error = fmt.Errorf("下载失败：%s", errMsg)
 		s.notifyTaskUpdate(task)
+
+		// 记录审计日志
+		s.logTaskFailure(task, errMsg)
 	} else {
 		// 验证：只有在进度接近或达到 100% 时才能标记为完成
 		// 如果最后一次进度小于 90%，说明可能异常退出
 		if lastProgress.Percent < 90 {
+			// 关键增强：输出异常退出的详细信息
+			log.Printf("[FAILED] 任务 %s (UE-HIDDEN: %s) 异常退出！ 使用引擎: %s | URL: %s | 最终进度: %.1f%% | 状态: %s",
+				task.ID, task.ID[:min(6, len(task.ID))], task.Engine, task.URL, lastProgress.Percent, lastProgress.Status)
+
 			task.TransitionStatus(TaskStatusFailed)
 			task.Error = fmt.Errorf("下载异常退出，进度仅 %.1f%%", lastProgress.Percent)
 			s.notifyTaskUpdate(task)
+
+			// 记录审计日志
+			s.logTaskFailure(task, fmt.Sprintf("下载异常退出，进度仅 %.1f%%", lastProgress.Percent))
 		} else {
 			// 先转换到 Merging 状态，然后再转换到 Completed
 			task.TransitionStatus(TaskStatusMerging)
@@ -474,4 +499,38 @@ func (s *TaskScheduler) Shutdown() {
 			time.Sleep(100 * time.Millisecond)
 		}
 	}
+}
+
+// logTaskFailure 记录任务失败的审计日志
+func (s *TaskScheduler) logTaskFailure(task *Task, errorMsg string) {
+	s.mu.RLock()
+	logger := s.auditLogger
+	s.mu.RUnlock()
+
+	if logger == nil {
+		return
+	}
+
+	// 构建审计日志
+	resourceType := audit.ResourceTypeTask
+	auditLog := &audit.AuditLog{
+		Action:       audit.ActionRetryTask, // 使用 retry_task 表示任务异常
+		ResourceType: &resourceType,
+		Detail: map[string]interface{}{
+			"task_id":    task.ID,
+			"url":        task.URL,
+			"engine":     task.Engine,
+			"error":      errorMsg,
+			"progress":   task.Progress.Percent,
+			"event_type": "task_failure",
+		},
+		CreatedAt: time.Now(),
+	}
+
+	// 异步记录，不阻塞主流程
+	go func() {
+		if err := logger.Log(auditLog); err != nil {
+			log.Printf("[AUDIT] 记录任务失败日志错误: %v", err)
+		}
+	}()
 }
