@@ -172,11 +172,12 @@ func (h *CookieHandler) SaveCookie(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 验证 Cookie 格式（Netscape 格式）
-	if err := validateCookieFormat(decryptedContent); err != nil {
+	// 统一处理：清洗、验证、域名一致性校验、注入标准头部
+	processedContent, err := processAndValidateCookie(decryptedContent, req.Domain)
+	if err != nil {
 		writeJSON(w, http.StatusBadRequest, SaveCookieResponse{
 			Success: false,
-			Error:   fmt.Sprintf("Invalid cookie format: %v", err),
+			Error:   err.Error(),
 		})
 		return
 	}
@@ -200,7 +201,7 @@ func (h *CookieHandler) SaveCookie(w http.ResponseWriter, r *http.Request) {
 		VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
 		ON CONFLICT(user_id, domain)
 		DO UPDATE SET content = excluded.content, updated_at = CURRENT_TIMESTAMP
-	`, userID, req.Domain, decryptedContent, isShared)
+	`, userID, req.Domain, processedContent, isShared)
 
 	if err != nil {
 		log.Printf("🚨 [SaveCookie] 数据库执行失败: %v", err)
@@ -579,4 +580,118 @@ func getUserFromContext(r *http.Request) (int, string, bool) {
 		return 0, "", false
 	}
 	return claims.UserID, claims.Role, true
+}
+
+// processAndValidateCookie 统一处理 Cookie 内容：
+// 1. 清洗注释行和空行
+// 2. 验证 Netscape 格式（7 字段制表符分隔）
+// 3. 域名一致性校验（确保上传内容与请求域名匹配）
+// 4. 注入标准头部 # Netscape HTTP Cookie File
+// 5. 规范化换行符（\r\n -> \n）
+func processAndValidateCookie(content, expectedDomain string) (string, error) {
+	// 规范化换行符
+	content = strings.ReplaceAll(content, "\r\n", "\n")
+	content = strings.ReplaceAll(content, "\r", "\n")
+
+	lines := strings.Split(content, "\n")
+	var validLines []string
+	var domainCounts map[string]int
+	domainCounts = make(map[string]int)
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+
+		// 跳过空行和注释行
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+
+		// 验证 7 字段结构
+		fields := strings.Split(trimmed, "\t")
+		if len(fields) != 7 {
+			return "", fmt.Errorf("格式错误：应为 7 个制表符分隔字段，实际 %d 个", len(fields))
+		}
+
+		// 提取并验证域名
+		domain := strings.TrimSpace(fields[0])
+		if domain == "" {
+			return "", fmt.Errorf("格式错误：域名为空")
+		}
+
+		// 验证过期时间
+		if _, err := strconv.ParseInt(strings.TrimSpace(fields[4]), 10, 64); err != nil {
+			return "", fmt.Errorf("格式错误：第 %d 行过期时间无效", len(validLines)+1)
+		}
+
+		// 记录域名分布
+		cleanDomain := strings.TrimPrefix(domain, ".")
+		domainCounts[cleanDomain]++
+
+		validLines = append(validLines, trimmed)
+	}
+
+	if len(validLines) == 0 {
+		return "", fmt.Errorf("未找到有效的 Cookie 条目")
+	}
+
+	// 域名一致性校验：检查域名是否与请求域名匹配（支持双向匹配）
+	expectedClean := strings.TrimPrefix(strings.ToLower(expectedDomain), ".")
+	var matchedCount int
+	for domain, count := range domainCounts {
+		if isDomainRelated(domain, expectedClean) {
+			matchedCount += count
+		}
+	}
+
+	totalCount := len(validLines)
+	if matchedCount == 0 {
+		return "", fmt.Errorf("域名不匹配：上传内容中未找到与 %q 相关的 Cookie 条目", expectedDomain)
+	}
+
+	// 如果匹配的条目不足 50%，发出警告
+	if matchedCount < totalCount/2 {
+		domainSummary := make([]string, 0, len(domainCounts))
+		for d, c := range domainCounts {
+			domainSummary = append(domainSummary, fmt.Sprintf("%s (%d 条)", d, c))
+		}
+		return "", fmt.Errorf("域名不匹配：上传内容中仅 %d/%d 条 Cookie 与 %q 相关，可能包含其他站点数据 (%s)",
+			matchedCount, totalCount, expectedDomain, strings.Join(domainSummary, ", "))
+	}
+
+	// 过滤：仅保留与请求域名相关的条目
+	filteredLines := make([]string, 0, matchedCount)
+	for _, line := range validLines {
+		fields := strings.Split(line, "\t")
+		domain := strings.TrimPrefix(strings.TrimSpace(fields[0]), ".")
+		if isDomainRelated(domain, expectedClean) {
+			filteredLines = append(filteredLines, line)
+		}
+	}
+
+	// 注入标准头部并拼接
+	result := "# Netscape HTTP Cookie File\n" + strings.Join(filteredLines, "\n")
+
+	return result, nil
+}
+
+// isDomainRelated 判断两个域名是否相关（支持双向匹配）
+// 场景说明：
+// 1. 精确匹配：bilibili.com == bilibili.com
+// 2. 子域名 → 父域名：www.bilibili.com 匹配 bilibili.com
+// 3. 父域名 → 子域名：bilibili.com 匹配 www.bilibili.com
+//    （父域名的 Cookie 通常对所有子域名有效）
+func isDomainRelated(domain, expected string) bool {
+	if domain == expected {
+		return true
+	}
+	// 子域名匹配父域名（如 www.bilibili.com 匹配 bilibili.com）
+	if strings.HasSuffix(domain, "."+expected) {
+		return true
+	}
+	// 父域名匹配子域名（如 bilibili.com 匹配 www.bilibili.com）
+	// 注意：仅当 expected 是 domain 的子域名时才匹配
+	if strings.HasSuffix(expected, "."+domain) {
+		return true
+	}
+	return false
 }

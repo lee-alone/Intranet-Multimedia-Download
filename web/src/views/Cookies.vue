@@ -82,6 +82,36 @@
             @input="handleContentInput"
           ></textarea>
           <p v-if="formatError" class="error-message">{{ formatError }}</p>
+
+          <!-- Cookie 状态标签 -->
+          <div v-if="cookieStatus" class="cookie-status-badge">
+            <div class="status-row">
+              <span class="status-item">
+                <svg class="status-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                有效条目：{{ cookieStatus.filteredCount }} 条
+              </span>
+              <span v-if="cookieStatus.expiresInfo" class="status-item">
+                <svg class="status-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                最早过期：{{ formatDateFromUnix(cookieStatus.expiresInfo.earliest) }}
+              </span>
+              <span v-if="cookieStatus.expiresInfo" class="status-item">
+                <svg class="status-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+                最晚过期：{{ formatDateFromUnix(cookieStatus.expiresInfo.latest) }}
+              </span>
+            </div>
+            <div v-if="cookieStatus.isExpiring" class="status-warning">
+              <svg class="warning-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              注意：部分 Cookie 可能在 7 天内过期，建议及时更新
+            </div>
+          </div>
         </div>
 
         <!-- 域名输入 -->
@@ -162,7 +192,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { getPublicKey, saveCookie, getCookies, deleteCookie, type CookieInfo } from '@/api'
-import { encryptCookie, extractDomainFromCookie, validateCookieFormat } from '@/utils/cookieCrypto'
+import { encryptCookie, extractDomainFromCookie, validateCookieFormat, cleanCookieContent, filterCookieByDomain } from '@/utils/cookieCrypto'
 
 // 状态管理
 const authStore = useAuthStore()
@@ -182,6 +212,15 @@ const saveSuccess = ref(false)
 const showHelp = ref(false)
 const cookies = ref<CookieInfo[]>([])
 
+// Cookie 状态标签
+const cookieStatus = ref<{
+  totalCount: number
+  filteredCount: number
+  expiresInfo: { earliest: number; latest: number } | null
+  isExpiring: boolean
+  domainStats: Record<string, number>
+} | null>(null)
+
 // 支持的网站列表
 const supportedSites = [
   { name: 'Bilibili', domain: 'bilibili.com' },
@@ -199,16 +238,41 @@ const siteCookieStatus = computed(() => {
   }))
 })
 
-// 自动识别域名
+// 自动识别域名并智能过滤
 function handleContentInput() {
   const detected = extractDomainFromCookie(cookieContent.value)
   if (detected) {
     autoDetectedDomain.value = detected
     domain.value = detected
     domainError.value = ''
+
+    // 智能过滤：如果用户已经选择了域名，自动过滤无关条目
+    if (domain.value) {
+      const filterResult = filterCookieByDomain(cookieContent.value, domain.value)
+      cookieStatus.value = {
+        totalCount: filterResult.totalCount,
+        filteredCount: filterResult.filteredCount,
+        expiresInfo: filterResult.expiresInfo,
+        isExpiring: filterResult.expiresInfo
+          ? filterResult.expiresInfo.latest < Date.now() / 1000 + 7 * 24 * 3600 // 7天内过期
+          : false,
+        domainStats: filterResult.domainStats,
+      }
+
+      // 如果有无关条目，提示用户
+      if (filterResult.filteredCount < filterResult.totalCount) {
+        const removed = filterResult.totalCount - filterResult.filteredCount
+        window.toast?.info(
+          `已自动为你剔除 ${removed} 条无关站点的 Cookie，保留 ${filterResult.filteredCount} 条 ${domain.value} 相关记录`,
+          3000
+        )
+      }
+    }
+
     formatError.value = validateCookieFormat(cookieContent.value) || ''
   } else {
     autoDetectedDomain.value = ''
+    cookieStatus.value = null
     if (cookieContent.value.trim()) {
       formatError.value = '无法识别域名，请手动输入'
     } else {
@@ -263,8 +327,11 @@ async function handleSubmit() {
   formatError.value = ''
 
   try {
+    // 自动清理备注行和空行
+    const cleanedContent = cleanCookieContent(cookieContent.value)
+
     const publicKey = await getPublicKey()
-    const encryptedData = await encryptCookie(cookieContent.value, publicKey)
+    const encryptedData = await encryptCookie(cleanedContent, publicKey)
     await saveCookie(domain.value, encryptedData, isShared.value)
 
     saveSuccess.value = true
@@ -316,6 +383,17 @@ function formatDate(dateStr: string): string {
   const date = new Date(dateStr)
   return date.toLocaleString('zh-CN', {
     year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+// 格式化 Unix 时间戳（秒）为可读日期
+function formatDateFromUnix(unixSeconds: number): string {
+  const date = new Date(unixSeconds * 1000)
+  return date.toLocaleString('zh-CN', {
     month: '2-digit',
     day: '2-digit',
     hour: '2-digit',
@@ -463,6 +541,31 @@ onMounted(() => {
 
 .error-message {
   @apply text-sm text-red-600 dark:text-red-400;
+}
+
+/* Cookie 状态标签 */
+.cookie-status-badge {
+  @apply mt-2 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800;
+}
+
+.status-row {
+  @apply flex flex-wrap gap-3 text-sm;
+}
+
+.status-item {
+  @apply flex items-center gap-1.5 text-gray-700 dark:text-gray-300;
+}
+
+.status-icon {
+  @apply w-4 h-4 text-blue-600 dark:text-blue-400 flex-shrink-0;
+}
+
+.status-warning {
+  @apply mt-2 flex items-center gap-1.5 text-sm text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 px-2 py-1 rounded;
+}
+
+.warning-icon {
+  @apply w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0;
 }
 
 /* 复选框 */

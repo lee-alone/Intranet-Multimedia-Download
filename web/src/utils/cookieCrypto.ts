@@ -223,36 +223,136 @@ export function extractDomainFromCookie(content: string): string | null {
 export function validateCookieFormat(content: string): string | null {
   const lines = content.split('\n')
   let validLines = 0
-  
+
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim()
-    
+
     // 跳过空行和注释行
     if (!line || line.startsWith('#')) {
       continue
     }
-    
+
     const fields = line.split('\t')
     if (fields.length !== 7) {
       return `第 ${i + 1} 行：应为 7 个制表符分隔的字段，实际 ${fields.length} 个`
     }
-    
+
     if (!fields[0]) {
       return `第 ${i + 1} 行：域名为空`
     }
-    
+
     // 验证过期时间是否为数字
     const expiration = fields[4].trim()
     if (isNaN(Number(expiration))) {
       return `第 ${i + 1} 行：无效的过期时间戳`
     }
-    
+
     validLines++
   }
-  
+
   if (validLines === 0) {
     return '未找到有效的 Cookie 条目'
   }
-  
+
   return null // 验证通过
+}
+
+/**
+ * 清理 Cookie 文本中的备注行（以 # 开头的注释行和空行）
+ *
+ * 某些浏览器插件导出的 Cookie 文件包含注释行，发送到后端可能导致 403 错误
+ *
+ * @param content 原始 Cookie 文本
+ * @returns 清理后的 Cookie 文本（仅保留有效数据行）
+ */
+export function cleanCookieContent(content: string): string {
+  const lines = content.split('\n')
+  const cleanedLines = lines.filter(line => {
+    const trimmed = line.trim()
+    // 过滤掉空行和注释行
+    return trimmed !== '' && !trimmed.startsWith('#')
+  })
+  return cleanedLines.join('\n')
+}
+
+/**
+ * 智能过滤：根据目标域名自动筛选 Cookie 条目
+ *
+ * @param content 原始 Cookie 文本
+ * @param targetDomain 目标域名（如 bilibili.com）
+ * @returns { filteredContent: 过滤后的内容, totalCount: 总条数, filteredCount: 过滤后条数, domainStats: 域名统计 }
+ */
+export function filterCookieByDomain(
+  content: string,
+  targetDomain: string
+): {
+  filteredContent: string
+  totalCount: number
+  filteredCount: number
+  domainStats: Record<string, number>
+  expiresInfo: { earliest: number; latest: number } | null
+} {
+  const lines = content.split('\n')
+  const targetClean = targetDomain.toLowerCase().replace(/^\./, '')
+  const validLines: string[] = []
+  const filteredLines: string[] = []
+  const domainStats: Record<string, number> = {}
+  let earliest = Infinity
+  let latest = 0
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (!trimmed || trimmed.startsWith('#')) continue
+
+    const fields = trimmed.split('\t')
+    if (fields.length !== 7) continue
+
+    const domain = fields[0].trim().replace(/^\./, '')
+    const expires = parseInt(fields[4].trim(), 10)
+
+    // 统计域名分布
+    domainStats[domain] = (domainStats[domain] || 0) + 1
+    validLines.push(trimmed)
+
+    // 更新过期时间范围
+    if (!isNaN(expires)) {
+      if (expires < earliest) earliest = expires
+      if (expires > latest) latest = expires
+    }
+
+    // 域名匹配检查（支持双向匹配）
+    if (isDomainRelated(domain, targetClean)) {
+      filteredLines.push(trimmed)
+    }
+  }
+
+  const expiresInfo =
+    earliest !== Infinity && latest > 0
+      ? { earliest, latest }
+      : null
+
+  return {
+    filteredContent: filteredLines.join('\n'),
+    totalCount: validLines.length,
+    filteredCount: filteredLines.length,
+    domainStats,
+    expiresInfo,
+  }
+}
+
+/**
+ * 判断两个域名是否相关（支持双向匹配）
+ *
+ * @param domain Cookie 条目中的域名
+ * @param expected 用户选择的目标域名
+ * @returns 是否相关
+ */
+function isDomainRelated(domain: string, expected: string): boolean {
+  // 1. 精确匹配
+  if (domain === expected) return true
+  // 2. 子域名 → 父域名（如 www.bilibili.com 匹配 bilibili.com）
+  if (domain.endsWith('.' + expected)) return true
+  // 3. 父域名 → 子域名（如 bilibili.com 匹配 www.bilibili.com）
+  if (expected.endsWith('.' + domain)) return true
+  return false
 }
