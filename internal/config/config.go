@@ -84,6 +84,7 @@ type DownloadConfig struct {
 	Timeout    int      `yaml:"timeout"`
 	MaxSize    int64    `yaml:"max_file_size"`
 	OutputDir  string   `yaml:"output_dir"`
+	TempDir    string   `yaml:"temp_dir"`
 	Whitelist  []string `yaml:"whitelist"`
 }
 
@@ -203,6 +204,9 @@ func (c *Config) convertPathsToAbsolute() {
 	if !filepath.IsAbs(c.Download.OutputDir) {
 		c.Download.OutputDir = filepath.Join(c.execDir, c.Download.OutputDir)
 	}
+	if !filepath.IsAbs(c.Download.TempDir) {
+		c.Download.TempDir = filepath.Join(c.execDir, c.Download.TempDir)
+	}
 }
 
 // Load 加载配置文件
@@ -316,6 +320,10 @@ func setDefaults(cfg *Config) {
 	}
 	if cfg.Download.OutputDir == "" {
 		cfg.Download.OutputDir = "./downloads"
+	}
+	// 如果 TempDir 未配置，默认指向 OutputDir 下的隐藏子目录 .tmp
+	if cfg.Download.TempDir == "" {
+		cfg.Download.TempDir = filepath.Join(cfg.Download.OutputDir, ".tmp")
 	}
 
 	// 日志配置

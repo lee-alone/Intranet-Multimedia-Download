@@ -132,6 +132,7 @@ func (h *TaskHandler) CreateTask(w http.ResponseWriter, r *http.Request) {
 		Options: engine.DownloadOptions{
 			Quality:    quality,
 			OutputDir:  h.outputDir,
+			TempDir:    h.tempDir,
 			Timeout:    time.Duration(3600) * time.Second, // 默认 1 小时超时
 			TaskID:     taskID,                            // 传递 TaskID 用于生成确定的文件名
 			UserID:     int(claims.UserID),                // 注入用户身份
@@ -305,6 +306,7 @@ func (h *TaskHandler) CreateBatchTask(w http.ResponseWriter, r *http.Request) {
 			Options: engine.DownloadOptions{
 				Quality:    quality,
 				OutputDir:  h.outputDir,
+				TempDir:    h.tempDir,
 				Timeout:    time.Duration(3600) * time.Second,
 				TaskID:     taskID, // 传递 TaskID 用于生成确定的文件名
 				UserID:     int(claims.UserID),                // 注入用户身份

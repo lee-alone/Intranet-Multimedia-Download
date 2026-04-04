@@ -682,6 +682,7 @@ func (h *TaskHandler) RetryTask(w http.ResponseWriter, r *http.Request) {
 	// 构造任务实例（保留原 ID）
 	opts := engine.DownloadOptions{
 		OutputDir:  h.outputDir,
+		TempDir:    h.tempDir,
 		TaskID:     taskID, // 保留原 ID
 		UserID:     int(userID),
 		UserRole:   claims.Role,

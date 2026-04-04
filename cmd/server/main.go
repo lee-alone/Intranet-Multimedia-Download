@@ -56,9 +56,15 @@ func main() {
 	}
 
 	// 确保下载目录存在（相对于程序根目录）
-	downloadDir := filepath.Join(execDir, "downloads")
+	downloadDir := cfg.Download.OutputDir
 	if err := os.MkdirAll(downloadDir, 0755); err != nil {
 		log.Fatalf("Failed to create downloads directory: %v", err)
+	}
+
+	// 确保临时目录存在
+	tempDir := cfg.Download.TempDir
+	if err := os.MkdirAll(tempDir, 0755); err != nil {
+		log.Fatalf("Failed to create temp directory: %v", err)
 	}
 
 	// 创建任务调度器
@@ -70,12 +76,16 @@ func main() {
 	ytdlp := engine.NewYtdlpEngine(engine.YtdlpConfig{
 		ExecPath:   filepath.Join(execDir, "runtime", "yt-dlp.exe"),
 		OutputDir:  downloadDir,
+		TempDir:    tempDir,
 		Timeout:    time.Duration(cfg.Download.Timeout) * time.Second,
 		MaxRetries: 3,
 	})
 
 	// 直接将 yt-dlp 注入调度器（单引擎架构，简化维护）
 	scheduler.SetEngine(ytdlp)
+
+	// 设置临时文件目录
+	scheduler.SetTempDir(tempDir)
 
 	// 创建审计日志记录器（如果启用）
 	if cfg.Audit.Enabled {
@@ -88,8 +98,8 @@ func main() {
 		}
 	}
 
-	// 创建服务器（传入 downloadDir 用于 TaskHandler）
-	srv, err := server.New(cfg, db, scheduler, downloadDir)
+	// 创建服务器（传入 downloadDir 和 tempDir 用于 TaskHandler）
+	srv, err := server.New(cfg, db, scheduler, downloadDir, tempDir)
 	if err != nil {
 		log.Fatalf("Failed to create server: %v", err)
 	}

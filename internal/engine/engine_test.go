@@ -319,8 +319,6 @@ func TestEngineStatus_String(t *testing.T) {
 
 // TestYtdlpParseProgress 测试 yt-dlp 进度解析
 func TestYtdlpParseProgress(t *testing.T) {
-	engine := NewYtdlpEngine(YtdlpConfig{})
-
 	testCases := []struct {
 		line     string
 		expected bool
@@ -335,7 +333,7 @@ func TestYtdlpParseProgress(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		prog, ok := engine.parseProgress(tc.line)
+		prog, ok := parseProgress(tc.line)
 		if ok != tc.expected {
 			t.Errorf("parseProgress(%s) ok = %v, expected %v", tc.line, ok, tc.expected)
 		} else if ok && prog == nil {

@@ -79,6 +79,7 @@ type Engine interface {
 // DownloadOptions 下载选项
 type DownloadOptions struct {
 	OutputDir    string        // 输出目录
+	TempDir      string        // 临时文件目录
 	OutputFormat string        // 输出格式 (mp4, mkv 等)
 	Quality      string        // 画质选择 (best, 1080p, 720p 等)
 	Timeout      time.Duration // 超时时间

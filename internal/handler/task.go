@@ -22,13 +22,16 @@ type TaskHandler struct {
 	whitelistMgr *middleware.WhitelistManager
 	auditLogger  *audit.Logger
 	outputDir    string
+	tempDir      string
 }
 
 // NewTaskHandler 创建任务处理器
-func NewTaskHandler(db *sql.DB, scheduler *engine.TaskScheduler, jwtMgr *auth.JWTManager, whitelistMgr *middleware.WhitelistManager, auditLogger *audit.Logger, outputDir string) *TaskHandler {
+func NewTaskHandler(db *sql.DB, scheduler *engine.TaskScheduler, jwtMgr *auth.JWTManager, whitelistMgr *middleware.WhitelistManager, auditLogger *audit.Logger, outputDir string, tempDir string) *TaskHandler {
 	// 使用外部传入的 outputDir（基于 os.Executable() 计算）
 	// 确保目录存在
 	os.MkdirAll(outputDir, 0755)
+	// 确保临时目录存在
+	os.MkdirAll(tempDir, 0755)
 
 	return &TaskHandler{
 		db:           db,
@@ -37,6 +40,7 @@ func NewTaskHandler(db *sql.DB, scheduler *engine.TaskScheduler, jwtMgr *auth.JW
 		whitelistMgr: whitelistMgr,
 		auditLogger:  auditLogger,
 		outputDir:    outputDir,
+		tempDir:      tempDir,
 	}
 }
 

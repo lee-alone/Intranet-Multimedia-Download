@@ -42,8 +42,8 @@ func (s *Server) registerRoutes() {
 		authHandler.SetSSOClient(auth.NewSSOClient(ssoConfig))
 	}
 
-	// 创建任务处理器（传入白名单管理器、审计日志记录器和下载目录）
-	taskHandler := handler.NewTaskHandler(s.db, s.scheduler, s.jwtMgr, s.whitelistMgr, s.auditLogger, s.outputDir)
+	// 创建任务处理器（传入白名单管理器、审计日志记录器、下载目录和临时目录）
+	taskHandler := handler.NewTaskHandler(s.db, s.scheduler, s.jwtMgr, s.whitelistMgr, s.auditLogger, s.outputDir, s.tempDir)
 
 	// 创建 WebSocket/进度流处理器（传入 db 用于权限验证）
 	wsHandler := handler.NewWebSocketHandler(s.db, s.jwtMgr)

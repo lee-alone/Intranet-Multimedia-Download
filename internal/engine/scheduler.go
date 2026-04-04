@@ -177,6 +177,7 @@ type TaskScheduler struct {
 	cookieGetter     CookieGetter  // Cookie 获取接口（可选）
 	tempFiles        []string      // 临时文件列表（用于清理）
 	tempFilesMu      sync.Mutex    // 临时文件互斥锁
+	tempDir          string        // 临时文件目录
 }
 
 // CookieGetter 获取 Cookie 的接口
@@ -190,6 +191,13 @@ func (s *TaskScheduler) SetCookieGetter(cg CookieGetter) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.cookieGetter = cg
+}
+
+// SetTempDir 设置临时文件目录
+func (s *TaskScheduler) SetTempDir(dir string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.tempDir = dir
 }
 
 // NewTaskScheduler 创建任务调度器
@@ -620,36 +628,51 @@ func extractDomainFromURL(url string) string {
 
 // createTempCookieFile 创建临时 Cookie 文件
 func (s *TaskScheduler) createTempCookieFile(content string) (string, error) {
+	// 确保临时目录存在
+	s.mu.RLock()
+	tempDir := s.tempDir
+	s.mu.RUnlock()
+
+	if tempDir == "" {
+		// 如果未设置，使用系统临时目录（降级方案）
+		tempDir = os.TempDir()
+	}
+
+	// 确保目录存在
+	if err := os.MkdirAll(tempDir, 0755); err != nil {
+		return "", fmt.Errorf("创建临时目录失败：%w", err)
+	}
+
 	// 创建临时文件
-	tmpFile, err := os.CreateTemp("", "cookie_*.txt")
+	tmpFile, err := os.CreateTemp(tempDir, "cookie_*.txt")
 	if err != nil {
 		return "", fmt.Errorf("创建临时 Cookie 文件失败：%w", err)
 	}
-	
+
 	tempPath := tmpFile.Name()
-	
+
 	// 写入 Cookie 内容
 	if _, err := tmpFile.WriteString(content); err != nil {
 		tmpFile.Close()
 		os.Remove(tempPath)
 		return "", fmt.Errorf("写入 Cookie 内容失败：%w", err)
 	}
-	
+
 	// 关闭文件
 	if err := tmpFile.Close(); err != nil {
 		os.Remove(tempPath)
 		return "", fmt.Errorf("关闭 Cookie 文件失败：%w", err)
 	}
-	
+
 	// 设置文件权限（仅所有者可读写）
 	if err := os.Chmod(tempPath, 0600); err != nil {
 		log.Printf("警告：设置 Cookie 文件权限失败：%v", err)
 	}
-	
+
 	// 记录临时文件（用于清理）
 	s.tempFilesMu.Lock()
 	s.tempFiles = append(s.tempFiles, tempPath)
 	s.tempFilesMu.Unlock()
-	
+
 	return tempPath, nil
 }

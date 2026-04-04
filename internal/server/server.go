@@ -39,6 +39,7 @@ type Server struct {
 	alertManager *alert.AlertManager
 	logRotator   *logrotate.Rotator
 	outputDir    string // 下载目录
+	tempDir      string // 临时文件目录
 	cookieHandler *handler.CookieHandler // Cookie 处理器
 
 	// 健康检查状态
@@ -48,7 +49,7 @@ type Server struct {
 }
 
 // New 创建新的服务器实例
-func New(cfg *config.Config, db *sql.DB, scheduler *engine.TaskScheduler, outputDir string) (*Server, error) {
+func New(cfg *config.Config, db *sql.DB, scheduler *engine.TaskScheduler, outputDir string, tempDir string) (*Server, error) {
 	// 创建 JWT 管理器
 	jwtMgr, err := auth.NewJWTManager(
 		cfg.Auth.PrivateKey,
@@ -153,6 +154,7 @@ func New(cfg *config.Config, db *sql.DB, scheduler *engine.TaskScheduler, output
 		alertManager: alertManager,
 		logRotator:   logRotator,
 		outputDir:    outputDir,
+		tempDir:      tempDir,
 		cookieHandler: cookieHandler,
 		server: &http.Server{
 			Addr:         cfg.GetAddress(),
