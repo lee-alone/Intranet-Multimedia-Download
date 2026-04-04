@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -192,6 +193,8 @@ func (e *YtdlpEngine) runYtdlp(
 
 	// === 第二步：构建下载命令参数 ===
 	args := buildYtdlpArgs(url, options, useAuth, e.execPath)
+	// 调试日志：输出完整的命令行参数
+	log.Printf("[DEBUG] yt-dlp 命令: %s %v", e.execPath, args)
 	cmd := exec.CommandContext(ctx, e.execPath, args...)
 
 	// === 第三步：启动进程并获取管道 ===

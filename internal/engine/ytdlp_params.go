@@ -31,17 +31,16 @@ func buildTitleArgs(url string, options DownloadOptions, useAuth bool) []string 
 	// 基础参数：UTF-8 编码 + 打印标题
 	args = append(args, "--encoding", "UTF-8", "--print", "title")
 
-	if useAuth && options.CookieFile != "" {
-		// 认证模式：携带 Cookie
+	// YouTube 特殊处理：不使用 Cookie，避免触发反爬虫机制
+	// YouTube 对 Cookie 检测非常严格，使用 Cookie 反而容易触发 429 错误
+	if useAuth && options.CookieFile != "" && !isYT {
+		// 认证模式：携带 Cookie（仅非 YouTube 站点）
 		args = append(args, "--cookies", options.CookieFile)
-		// 关键点：对于 YouTube，只传 Cookie，不传 UA（避免 UA 不匹配触发风控）
-		if !isYT {
-			userAgent := options.UserAgent
-			if userAgent == "" {
-				userAgent = DefaultUserAgent
-			}
-			args = append(args, "--user-agent", userAgent)
+		userAgent := options.UserAgent
+		if userAgent == "" {
+			userAgent = DefaultUserAgent
 		}
+		args = append(args, "--user-agent", userAgent)
 	}
 	// 纯净模式：不添加认证相关参数
 
@@ -61,7 +60,6 @@ func buildYtdlpArgs(url string, options DownloadOptions, useAuth bool, execPath 
 		"--newline",
 		"--progress",
 		"--encoding", "UTF-8",
-		"--merge-output-format", "mp4",
 	}
 
 	// 指定 ffmpeg 路径（与 yt-dlp 在同一目录下）
@@ -80,7 +78,9 @@ func buildYtdlpArgs(url string, options DownloadOptions, useAuth bool, execPath 
 	args = append(args, buildQualityArgs(options.Quality, isYT)...)
 
 	// === 认证模式 vs 纯净模式 的分水岭 ===
-	if useAuth {
+	// YouTube 特殊处理：不使用 Cookie，避免触发反爬虫机制
+	// YouTube 对 Cookie 检测非常严格，使用 Cookie 反而容易触发 429 错误
+	if useAuth && !isYT {
 		args = append(args, buildAuthArgs(url, options)...)
 	}
 	// 纯净模式：不添加认证相关参数
@@ -150,7 +150,18 @@ func buildPathsArgs(options DownloadOptions) []string {
 // 使用 -S (Sort) 排序策略替代死板的 -f 过滤，更鲁棒
 func buildQualityArgs(quality string, isYouTube bool) []string {
 	if quality == "" || quality == "best" {
-		// 默认最强画质：音视频分离后合并
+		// 默认最强画质：使用更灵活的格式选择策略
+		// 优先尝试音视频分离，回退到单文件，最后使用任何可用格式
+		// 对于 YouTube，添加额外的格式选择参数来解锁更多选项
+		if isYouTube {
+			// YouTube 特殊处理：使用最宽松的格式选择策略
+			// 不限制容器格式，让 yt-dlp 自动选择最佳可用格式
+			// 回退链：分离流 -> 合并流 -> 任意最佳格式
+			return []string{
+				"-f", "bestvideo+bestaudio/best",
+			}
+		}
+		// 非 YouTube 站点：使用标准策略
 		return []string{"-f", "bestvideo+bestaudio/best"}
 	}
 
@@ -160,6 +171,12 @@ func buildQualityArgs(quality string, isYouTube bool) []string {
 	// 策略：使用 -S 限制分辨率上限，-f 保证获取合并流
 	// -S res:1080 会优先选择不超过 1080p 的最清晰流
 	// -f bestvideo+bestaudio/best 确保拿到分离的音视频并合并
+	if isYouTube {
+		// YouTube 使用更宽松的格式选择，不限制容器格式
+		return []string{
+			"-f", fmt.Sprintf("bestvideo[height<=%s]+bestaudio/best[height<=%s]/best", height, height),
+		}
+	}
 	return []string{
 		"-S", fmt.Sprintf("res:%s", height),
 		"-f", "bestvideo+bestaudio/best",
@@ -176,17 +193,27 @@ func buildAuthArgs(url string, options DownloadOptions) []string {
 		args = append(args, "--cookies", options.CookieFile)
 	}
 
-	// User-Agent 和提取器参数：仅当真正上传了 Cookies 且非 YouTube 时才注入
-	if options.CookieFile != "" && !isYT {
-		userAgent := options.UserAgent
-		if userAgent == "" {
-			userAgent = DefaultUserAgent
-		}
-		args = append(args, "--user-agent", userAgent)
+	// User-Agent 和提取器参数
+	if options.CookieFile != "" {
+		// 对于非 YouTube 站点，注入 User-Agent
+		if !isYT {
+			userAgent := options.UserAgent
+			if userAgent == "" {
+				userAgent = DefaultUserAgent
+			}
+			args = append(args, "--user-agent", userAgent)
 
-		// Bilibili 提取器参数
-		if isBilibiliURL(url) {
-			args = append(args, "--extractor-args", "bilibili:prefer_multi_flv=true")
+			// Bilibili 提取器参数
+			if isBilibiliURL(url) {
+				args = append(args, "--extractor-args", "bilibili:prefer_multi_flv=true")
+			}
+		}
+
+		// YouTube 提取器参数：认证模式下解锁更多格式选项
+		if isYT {
+			// 使用多个客户端来获取更多格式选项
+			// WEB + ANDROID 客户端组合可以获取更完整的格式列表
+			args = append(args, "--extractor-args", "youtube:player-client=WEB,ANDROID")
 		}
 	}
 
