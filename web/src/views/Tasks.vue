@@ -14,7 +14,7 @@ const error = ref('')
 const showBatchView = ref(false)
 
 // 引入 composables
-const { fetchTasks: apiFetchTasks, handleCancelOrDelete, handleDownload, retryTask } = useTaskActions()
+const { fetchTasks: apiFetchTasks, handleCancelOrDelete, handleDownload, handleRetry } = useTaskActions()
 const { isPolling, updateSmartPolling } = useTaskPolling(() => fetchTasks())
 
 // 缓存清理定时器
@@ -137,10 +137,16 @@ async function onDownload(taskId: string) {
  * 处理重试
  */
 async function onRetry(taskId: string) {
-  const success = await retryTask(taskId)
+  const success = await handleRetry(taskId)
   if (success) {
-    // 刷新任务列表
-    await fetchTasks()
+    // 立即更新本地任务状态为排队中，无需等待刷新
+    const taskIndex = tasks.value.findIndex(t => t.id === taskId)
+    if (taskIndex !== -1) {
+      tasks.value[taskIndex].status = 'queued'
+      // 进度保持在失败时的那个点，不重置为 0
+    }
+    // 延迟一小段时间后再刷新列表，确保后端状态已更新
+    setTimeout(() => fetchTasks(), 1000)
   }
 }
 

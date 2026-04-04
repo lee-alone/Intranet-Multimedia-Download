@@ -314,10 +314,10 @@ func (s *TaskScheduler) executeTask(task *Task) {
 		taskCancel() // 确保释放资源
 	}()
 
-	// 处理 Cookie 文件（如果配置了 CookieGetter）
+	// 处理 Cookie 文件（仅在任务开启了 UseCookies 且配置了 CookieGetter 时）
 	var tempCookieFile string
 	var cookieFileDeleted bool
-	if s.cookieGetter != nil && task.Options.UserID > 0 {
+	if task.Options.UseCookies && s.cookieGetter != nil && task.Options.UserID > 0 {
 		// 从 URL 中提取域名
 		domain := extractDomainFromURL(task.URL)
 		if domain != "" {

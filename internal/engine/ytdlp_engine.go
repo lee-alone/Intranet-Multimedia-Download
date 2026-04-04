@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,6 +14,10 @@ import (
 	"sync"
 	"time"
 )
+
+// 固定的 User-Agent（最新 Chrome Windows 10 Standard UA）
+// 用于与导出 Cookie 时的浏览器 UA 保持一致，降低风控风险
+const DefaultUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 
 // YtdlpEngine 是 yt-dlp 下载引擎的实现
 type YtdlpEngine struct {
@@ -118,403 +121,462 @@ func (e *YtdlpEngine) Download(ctx context.Context, url string, options Download
 		defer close(progressChan)
 
 		var result DownloadResult
-		var lastProgress *DownloadProgress
-		var videoTitle string
-		var lastProgressMu sync.Mutex
-		var errorSent bool // 跟踪是否已发送错误信息
 
-		// 首先获取视频标题（在下载前）
-		// 使用 --encoding UTF-8 强制输出 UTF-8 编码，避免 Windows GBK 乱码
-		titleCmd := exec.CommandContext(ctx, e.execPath, "--encoding", "UTF-8", "--print", "title", url)
-		titleOutput, err := titleCmd.Output()
-		if err == nil {
-			videoTitle = strings.TrimSpace(string(titleOutput))
-		}
+		// 根据 UseCookies 选项决定使用认证模式还是纯净模式
+		// useAuth 直接由 options.UseCookies 决定，不再有重试回滚逻辑
+		useAuth := options.UseCookies
 
-		// 构建 yt-dlp 命令参数
-		args := []string{
-			"--no-color",
-			"--newline",
-			"--progress",
-			"--encoding", "UTF-8", // 强制使用 UTF-8 编码输出，避免 Windows 下 GBK 乱码
-			"--merge-output-format", "mp4", // 强制合并输出为 mp4 格式
-		}
-
-		// 指定 ffmpeg 路径（与 yt-dlp.exe 同目录）
-		ffmpegPath := filepath.Join(filepath.Dir(e.execPath), "ffmpeg.exe")
-		if _, err := os.Stat(ffmpegPath); err == nil {
-			args = append(args, "--ffmpeg-location", ffmpegPath)
-		}
-
-		// 输出目录和格式
-		outputTemplate := ""
-		if options.OutputDir != "" {
-			// 如果提供了 TaskID，使用 task_id.mp4 作为文件名（避免中文乱码）
-			if options.TaskID != "" {
-				outputTemplate = filepath.Join(options.OutputDir, options.TaskID+".%(ext)s")
-			} else {
-				// 使用 %(id)s 而不是 %(title)s 避免文件名乱码
-				outputTemplate = filepath.Join(options.OutputDir, "%(id)s.%(ext)s")
-			}
-			args = append(args, "-o", outputTemplate)
-		} else {
-			if options.TaskID != "" {
-				args = append(args, "-o", options.TaskID+".%(ext)s")
-			} else {
-				args = append(args, "-o", "%(id)s.%(ext)s")
-			}
-		}
-
-		// 画质选择
-		// 注意：中文网站（Bilibili、爱奇艺、优酷等）的视频格式选择需要特别处理
-		// 使用更精确的格式选择器，优先选择高码率视频
-
-		if options.Quality == "" || options.Quality == "best" {
-			// 最高画质：优先选择最佳视频+最佳音频，并合并
-			// 格式选择器说明：
-			// 1. bestvideo*+bestaudio/best - 选择最佳视频（任意编码）+最佳音频，回退到最佳预合并格式
-			// 2. 对于Bilibili等网站，需要确保选择的是真正的最高画质
-			args = append(args, "-f", "bestvideo*+bestaudio/best")
-		} else {
-			// 指定分辨率：使用更智能的格式选择
-			// 格式选择器说明：
-			// 1. bestvideo[height<=N][vcodec!=none]+bestaudio - 选择指定分辨率以下的最佳视频（有视频编码）+最佳音频
-			// 2. 如果找不到，回退到最佳预合并格式
-			// 3. 使用 vcodec!=none 过滤掉纯音频格式
-			height := options.Quality
-			// 移除可能的 'p' 后缀（如 "1080p" -> "1080"）
-			height = strings.TrimSuffix(height, "p")
-			args = append(args, "-f", "bestvideo[height<="+height+"][vcodec!=none]+bestaudio/best[height<="+height+"]/best")
-		}
-
-		// 针对中文网站的优化设置
-		// Bilibili: 使用 extractor-args 确保获取最高画质
-		if strings.Contains(strings.ToLower(url), "bilibili.com") || strings.Contains(strings.ToLower(url), "b23.tv") {
-			// Bilibili 需要额外的参数来获取高画质
-			// --extractor-args bilibili:prefer_multi_flv=true 可以获取更高画质
-			args = append(args, "--extractor-args", "bilibili:prefer_multi_flv=true")
-		}
-
-		// 超时设置
-		if options.Timeout > 0 {
-			args = append(args, "--socket-timeout", strconv.Itoa(int(options.Timeout.Seconds())))
-		}
-
-		// Cookie 文件
-		// 注意：对于Bilibili等网站，登录Cookie是获取最高画质的必要条件
-		// 建议用户在配置中提供有效的Cookie文件
-		if options.CookieFile != "" {
-			args = append(args, "--cookies", options.CookieFile)
-		}
-
-		// User-Agent
-		if options.UserAgent != "" {
-			args = append(args, "--user-agent", options.UserAgent)
-		}
-
-		// 代理
-		if options.Proxy != "" {
-			args = append(args, "--proxy", options.Proxy)
-		}
-
-		// 添加 URL
-		args = append(args, url)
-
-		// 创建命令
-		cmd := exec.CommandContext(ctx, e.execPath, args...)
-
-		// 获取标准输出用于解析进度
-		stdout, err := cmd.StdoutPipe()
-		if err != nil {
-			result = DownloadResult{
-				Success: false,
-				Error:   fmt.Errorf("failed to get stdout: %w", err),
-			}
-			safeSendProgress(progressChan, DownloadProgress{Status: result.Error.Error()})
-			return
-		}
-
-		// 获取标准错误用于解析进度
-		stderr, err := cmd.StderrPipe()
-		if err != nil {
-			result = DownloadResult{
-				Success: false,
-				Error:   fmt.Errorf("failed to get stderr: %w", err),
-			}
-			safeSendProgress(progressChan, DownloadProgress{Status: result.Error.Error()})
-			return
-		}
-
-		// 启动命令
-		if err := cmd.Start(); err != nil {
-			result = DownloadResult{
-				Success: false,
-				Error:   fmt.Errorf("failed to start command: %w", err),
-			}
-			safeSendProgress(progressChan, DownloadProgress{Status: result.Error.Error()})
-			return
-		}
-
-		// 安全增强：yt-dlp 启动后立即删除临时 Cookie 文件
-		// yt-dlp 在启动时会将 Cookie 内容加载到内存，磁盘文件不再需要
-		if options.CookieFile != "" {
-			if err := os.Remove(options.CookieFile); err != nil {
-				if !os.IsNotExist(err) {
-					log.Printf("警告：yt-dlp 启动后删除临时 Cookie 文件失败：%s, 错误：%v", options.CookieFile, err)
-				}
-				// 标记为已删除，避免 scheduler 重复删除
-				options.CookieFile = ""
-			} else {
-				// 标记为已删除
-				options.CookieFile = ""
-			}
-		}
-
-		// 解析进度输出
-		go func() {
-			scanner := bufio.NewScanner(stdout)
-			for scanner.Scan() {
-				line := scanner.Text()
-				if prog, ok := e.parseProgress(line); ok {
-					prog.Status = line
-					safeSendProgress(progressChan, *prog)
-					lastProgressMu.Lock()
-					lastProgress = prog
-					lastProgressMu.Unlock()
-				} else if strings.Contains(strings.ToLower(line), "error") {
-					// 捕获错误信息并发送到通道
-					lastProgressMu.Lock()
-					pct := 0.0
-					if lastProgress != nil {
-						pct = lastProgress.Percent
-					}
-					errProg := &DownloadProgress{
-						Percent: pct,
-						Status:  "error: " + line,
-					}
-					safeSendProgress(progressChan, *errProg)
-					errorSent = true
-					lastProgressMu.Unlock()
-				}
-				// 解析文件路径 [download] Destination: /path/to/file
-				if strings.Contains(line, "[download] Destination:") {
-					filePath := strings.TrimSpace(strings.SplitN(line, "Destination:", 2)[1])
-					// 如果是相对路径，转换为绝对路径
-					if !filepath.IsAbs(filePath) && options.OutputDir != "" {
-						filePath = filepath.Join(options.OutputDir, filePath)
-					}
-					lastProgressMu.Lock()
-					if lastProgress != nil {
-						lastProgress.FilePath = filePath
-					}
-					lastProgressMu.Unlock()
-				}
-				// 解析合并后的文件路径 [Merger] Merging formats into "/path/to/file"
-				// 这对于Bilibili等需要合并音视频的网站很重要
-				if strings.Contains(line, "[Merger] Merging formats into") {
-					filePath := strings.TrimSpace(strings.SplitN(line, "Merging formats into", 2)[1])
-					// 移除可能的引号
-					filePath = strings.Trim(filePath, "\"")
-					// 如果是相对路径，转换为绝对路径
-					if !filepath.IsAbs(filePath) && options.OutputDir != "" {
-						filePath = filepath.Join(options.OutputDir, filePath)
-					}
-					lastProgressMu.Lock()
-					if lastProgress != nil {
-						lastProgress.FilePath = filePath
-					}
-					lastProgressMu.Unlock()
-				}
-			}
-		}()
-
-		// 解析 stderr 中的进度
-		go func() {
-			scanner := bufio.NewScanner(stderr)
-			for scanner.Scan() {
-				line := scanner.Text()
-				if prog, ok := e.parseProgress(line); ok {
-					prog.Status = line
-					safeSendProgress(progressChan, *prog)
-					lastProgressMu.Lock()
-					lastProgress = prog
-					lastProgressMu.Unlock()
-				} else if strings.Contains(strings.ToLower(line), "error") {
-					// 捕获错误信息并发送到通道
-					lastProgressMu.Lock()
-					pct := 0.0
-					if lastProgress != nil {
-						pct = lastProgress.Percent
-					}
-					errProg := &DownloadProgress{
-						Percent: pct,
-						Status:  "error: " + line,
-					}
-					safeSendProgress(progressChan, *errProg)
-					errorSent = true
-					lastProgressMu.Unlock()
-				}
-				// 解析文件路径 [download] Destination: /path/to/file
-				if strings.Contains(line, "[download] Destination:") {
-					filePath := strings.TrimSpace(strings.SplitN(line, "Destination:", 2)[1])
-					// 如果是相对路径，转换为绝对路径
-					if !filepath.IsAbs(filePath) && options.OutputDir != "" {
-						filePath = filepath.Join(options.OutputDir, filePath)
-					}
-					lastProgressMu.Lock()
-					if lastProgress != nil {
-						lastProgress.FilePath = filePath
-					}
-					lastProgressMu.Unlock()
-				}
-				// 解析合并后的文件路径 [Merger] Merging formats into "/path/to/file"
-				// 这对于Bilibili等需要合并音视频的网站很重要
-				if strings.Contains(line, "[Merger] Merging formats into") {
-					filePath := strings.TrimSpace(strings.SplitN(line, "Merging formats into", 2)[1])
-					// 移除可能的引号
-					filePath = strings.Trim(filePath, "\"")
-					// 如果是相对路径，转换为绝对路径
-					if !filepath.IsAbs(filePath) && options.OutputDir != "" {
-						filePath = filepath.Join(options.OutputDir, filePath)
-					}
-					lastProgressMu.Lock()
-					if lastProgress != nil {
-						lastProgress.FilePath = filePath
-					}
-					lastProgressMu.Unlock()
-				}
-			}
-		}()
-
-		// 等待命令完成
-		err = cmd.Wait()
-
-		// 如果进程异常退出且未发送过错误信息，构造错误进度发送
-		if err != nil && !errorSent {
-			lastProgressMu.Lock()
-			pct := 0.0
-			var fp, title string
-			if lastProgress != nil {
-				pct = lastProgress.Percent
-				fp = lastProgress.FilePath
-				title = lastProgress.Title
-			}
-			errProg := DownloadProgress{
-				Percent:  pct,
-				Status:   "error: download failed: " + err.Error(),
-				FilePath: fp,
-				Title:    title,
-			}
-			safeSendProgress(progressChan, errProg)
-			errorSent = true
-			lastProgressMu.Unlock()
-		}
-
-		// 下载完成后，如果指定了 TaskID 但文件路径不是 TaskID，则重命名文件
-		lastProgressMu.Lock()
-		if options.TaskID != "" && lastProgress != nil && lastProgress.FilePath != "" {
-			dir := filepath.Dir(lastProgress.FilePath)
-			baseName := filepath.Base(lastProgress.FilePath)
-			ext := filepath.Ext(baseName)
-
-			// 如果文件名不是 TaskID 开头，则重命名
-			if !strings.HasPrefix(baseName, options.TaskID) {
-				newFileName := options.TaskID + ext
-				newFilePath := filepath.Join(dir, newFileName)
-
-				// 如果新文件不存在，则重命名
-				if _, err := os.Stat(newFilePath); os.IsNotExist(err) {
-					if err := os.Rename(lastProgress.FilePath, newFilePath); err == nil {
-						lastProgress.FilePath = newFilePath
-					}
-				} else if err == nil {
-					// 新文件已存在，删除旧文件
-					os.Remove(lastProgress.FilePath)
-					lastProgress.FilePath = newFilePath
-				}
-			}
-		}
-		lastProgressMu.Unlock()
-
-		// 发送最终进度（包含文件路径和标题）
-		lastProgressMu.Lock()
-		if lastProgress != nil {
-			// 如果下载完成但没有文件路径，尝试在输出目录中查找 TaskID 文件
-			if lastProgress.Percent >= 100 && lastProgress.FilePath == "" && options.TaskID != "" && options.OutputDir != "" && !errorSent {
-				// 尝试查找 TaskID.mp4 或其他扩展名
-				videoExts := []string{".mp4", ".mkv", ".webm", ".avi", ".mov", ".flv", ".wmv", ".m4v"}
-				for _, ext := range videoExts {
-					testPath := filepath.Join(options.OutputDir, options.TaskID+ext)
-					if _, err := os.Stat(testPath); err == nil {
-						lastProgress.FilePath = testPath
-						break
-					}
-				}
-
-				// 如果还是没有文件路径，尝试使用 yt-dlp 获取文件名
-				if lastProgress.FilePath == "" {
-					if options.OutputDir != "" {
-						// 使用 yt-dlp 获取实际文件名
-						cmd := exec.Command(e.execPath, "--simulate", "--print", "filename", url)
-						output, err := cmd.Output()
-						if err == nil {
-							filename := strings.TrimSpace(string(output))
-							if filename != "" {
-								lastProgress.FilePath = filepath.Join(options.OutputDir, filename)
-							}
-						}
-					}
-				}
-			}
-
-			// 设置视频标题
-			if videoTitle != "" {
-				lastProgress.Title = videoTitle
-			}
-			// 确保文件路径是绝对路径
-			if lastProgress.FilePath != "" && !filepath.IsAbs(lastProgress.FilePath) {
-				if options.OutputDir != "" {
-					lastProgress.FilePath = filepath.Join(options.OutputDir, lastProgress.FilePath)
-				} else {
-					if absPath, err := filepath.Abs(lastProgress.FilePath); err == nil {
-						lastProgress.FilePath = absPath
-					}
-				}
-			}
-			finalProgress := *lastProgress
-			lastProgressMu.Unlock()
-			// 仅在非错误状态下发送最终进度
-			if !errorSent {
-				safeSendProgress(progressChan, finalProgress)
-			}
-		} else {
-			lastProgressMu.Unlock()
-		}
+		// 执行单一模式下载
+		dlResult := e.runYtdlp(ctx, url, options, useAuth, progressChan)
 
 		// 处理结果
-		if err != nil {
+		if !dlResult.Success {
 			result = DownloadResult{
 				Success: false,
-				Error:   fmt.Errorf("download failed: %w", err),
+				Error:   dlResult.Error,
 			}
 			e.status = EngineStatusError
 			e.lastError = result.Error
 		} else {
-			lastProgressMu.Lock()
-			statusVal := ""
-			if lastProgress != nil {
-				statusVal = lastProgress.Status
-			}
-			lastProgressMu.Unlock()
 			result = DownloadResult{
 				Success:    true,
-				OutputPath: statusVal,
+				OutputPath: dlResult.FilePath,
+				Title:      dlResult.VideoTitle,
 			}
 			e.status = EngineStatusIdle
 		}
 	}()
 
 	return progressChan
+}
+
+// isAuthRelatedError 判断错误是否由认证相关原因导致
+// 用于触发回滚机制，从"认证模式"降级到"纯净模式"
+func isAuthRelatedError(errMsg string) bool {
+	// 统一弯撇号：将弯撇号（' U+2019）替换为直撇号（' U+0027）
+	// 确保无论 yt-dlp 输出使用哪种撇号都能匹配
+	errLower := strings.ToLower(strings.ReplaceAll(errMsg, "'", "'"))
+
+	// 认证/风控相关错误特征
+	authErrorPatterns := []string{
+		"sign in to confirm you're not a bot",  // 机器人验证
+		"sign in to confirm you are not a bot", // 变体（直撇号）
+		"sign in to confirm your age",          // 年龄验证
+		"requested format is not available",    // 格式不可用（可能是认证限制）
+		"private video",                        // 私有视频（需要认证）
+		"members-only",                         // 会员专属（需要认证）
+		"this video is unavailable",            // 视频不可用（可能被限制）
+		"account has been terminated",          // 账号被封
+		"verify it's you",                      // 身份验证
+		"verify it's you",                      // 变体（直撇号）
+		"consent cookie",                       // Cookie 同意
+		"age-restricted",                       // 年龄限制
+		"login required",                       // 需要登录
+		"authentication required",              // 需要认证
+	}
+
+	for _, pattern := range authErrorPatterns {
+		if strings.Contains(errLower, pattern) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// ytdlpExecutionResult yt-dlp 执行结果
+type ytdlpExecutionResult struct {
+	Success      bool
+	Error        error
+	LastProgress *DownloadProgress
+	VideoTitle   string
+	FilePath     string
+	ErrorOutput  string // 完整的错误输出
+}
+
+// runYtdlp 执行 yt-dlp 下载命令
+// useAuth: 是否使用认证相关参数（Cookies、UA、ExtractorArgs）
+func (e *YtdlpEngine) runYtdlp(
+	ctx context.Context,
+	url string,
+	options DownloadOptions,
+	useAuth bool,
+	progressChan chan DownloadProgress,
+) *ytdlpExecutionResult {
+	result := &ytdlpExecutionResult{}
+
+	// 获取视频标题（在下载前）
+	// 使用 --encoding UTF-8 强制输出 UTF-8 编码，避免 Windows GBK 乱码
+	isYouTubeURL := strings.Contains(strings.ToLower(url), "youtube.com") || strings.Contains(strings.ToLower(url), "youtu.be")
+
+	var titleArgs []string
+	if useAuth && options.CookieFile != "" {
+		// 认证模式：携带 Cookie 获取标题
+		titleArgs = []string{"--encoding", "UTF-8", "--print", "title", "--cookies", options.CookieFile}
+		// 关键点：对于 YouTube，只传 Cookie，不传 UA（避免 UA 不匹配触发风控）
+		if !isYouTubeURL {
+			userAgent := options.UserAgent
+			if userAgent == "" {
+				userAgent = DefaultUserAgent
+			}
+			titleArgs = append(titleArgs, "--user-agent", userAgent)
+		}
+	} else {
+		// 纯净模式：不携带 Cookie
+		titleArgs = []string{"--encoding", "UTF-8", "--print", "title"}
+	}
+	titleArgs = append(titleArgs, url)
+
+	titleCmd := exec.CommandContext(ctx, e.execPath, titleArgs...)
+	titleOutput, err := titleCmd.Output()
+	if err == nil {
+		result.VideoTitle = strings.TrimSpace(string(titleOutput))
+	}
+
+	// 构建 yt-dlp 命令参数
+	args := []string{
+		"--no-color",
+		"--newline",
+		"--progress",
+		"--encoding", "UTF-8",
+		"--merge-output-format", "mp4",
+	}
+
+	// 指定 ffmpeg 路径
+	ffmpegPath := filepath.Join(filepath.Dir(e.execPath), "ffmpeg.exe")
+	if _, statErr := os.Stat(ffmpegPath); statErr == nil {
+		args = append(args, "--ffmpeg-location", ffmpegPath)
+	}
+
+	// 输出目录和格式
+	if options.OutputDir != "" {
+		if options.TaskID != "" {
+			args = append(args, "-o", filepath.Join(options.OutputDir, options.TaskID+".%(ext)s"))
+		} else {
+			args = append(args, "-o", filepath.Join(options.OutputDir, "%(id)s.%(ext)s"))
+		}
+	} else {
+		if options.TaskID != "" {
+			args = append(args, "-o", options.TaskID+".%(ext)s")
+		} else {
+			args = append(args, "-o", "%(id)s.%(ext)s")
+		}
+	}
+
+	// === 画质选择：极简策略 ===
+	// 对于 YouTube 站点，尽量不加干预，让它走官方默认 4K 逻辑
+	// isYouTubeURL 已在上方获取
+
+	if options.Quality == "" || options.Quality == "best" {
+		// 最高画质：对于 YouTube，完全不传 -f 参数，让它自动匹配最强 4K 合并方案
+		// 对于其他站点，使用官方推荐的标准格式
+		if !isYouTubeURL {
+			args = append(args, "-f", "bestvideo*+bestaudio/best")
+		}
+		// YouTube 走默认逻辑，不干预
+	} else {
+		// 用户指定了具体分辨率（如 1080p），才做计算
+		height := strings.TrimSuffix(options.Quality, "p")
+		args = append(args, "-f", "bestvideo[height<="+height+"][vcodec!=none]+bestaudio/best[height<="+height+"]/best")
+	}
+
+	// === 认证模式 vs 纯净模式 的分水岭 ===
+	if useAuth {
+		// Cookie 文件
+		if options.CookieFile != "" {
+			args = append(args, "--cookies", options.CookieFile)
+		}
+
+		// User-Agent：仅当真正上传了 Cookies 时，才注入配套的 User-Agent
+		// 关键点：对于 YouTube，只传 Cookie，不传 Extractor Args 和 UA
+		if options.CookieFile != "" && !isYouTubeURL {
+			// 非 YouTube 站点：注入 UA 和提取器参数
+			userAgent := options.UserAgent
+			if userAgent == "" {
+				userAgent = DefaultUserAgent
+			}
+			args = append(args, "--user-agent", userAgent)
+
+			// Bilibili 提取器参数
+			if strings.Contains(strings.ToLower(url), "bilibili.com") || strings.Contains(strings.ToLower(url), "b23.tv") {
+				args = append(args, "--extractor-args", "bilibili:prefer_multi_flv=true")
+			}
+		}
+		// 移除 --force-ipv4：让 yt-dlp 自行决定使用哪个 IP 栈，这才是最正宗的官方默认
+	}
+	// 纯净模式：不添加上述认证相关参数
+
+	// === 续传属性：所有模式统一追加 ===
+	args = append(args, "--continue")
+	args = append(args, "--retries", "10")
+	args = append(args, "--fragment-retries", "10")
+
+	// 超时设置（两种模式都添加）
+	if options.Timeout > 0 {
+		args = append(args, "--socket-timeout", strconv.Itoa(int(options.Timeout.Seconds())))
+	}
+
+	// 代理（两种模式都添加）
+	if options.Proxy != "" {
+		args = append(args, "--proxy", options.Proxy)
+	}
+
+	// 添加 URL
+	args = append(args, url)
+
+	// 创建命令
+	cmd := exec.CommandContext(ctx, e.execPath, args...)
+
+	// 获取标准输出
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		result.Error = fmt.Errorf("failed to get stdout: %w", err)
+		safeSendProgress(progressChan, DownloadProgress{Status: result.Error.Error()})
+		return result
+	}
+
+	// 获取标准错误
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		result.Error = fmt.Errorf("failed to get stderr: %w", err)
+		safeSendProgress(progressChan, DownloadProgress{Status: result.Error.Error()})
+		return result
+	}
+
+	// 启动命令
+	if err := cmd.Start(); err != nil {
+		result.Error = fmt.Errorf("failed to start command: %w", err)
+		safeSendProgress(progressChan, DownloadProgress{Status: result.Error.Error()})
+		return result
+	}
+
+	// 用于收集错误输出
+	var errorOutput strings.Builder
+	var lastProgressMu sync.Mutex
+	var errorSent bool
+
+	// 解析 stdout
+	go func() {
+		scanner := bufio.NewScanner(stdout)
+		for scanner.Scan() {
+			line := scanner.Text()
+			if prog, ok := e.parseProgress(line); ok {
+				prog.Status = line
+				safeSendProgress(progressChan, *prog)
+				lastProgressMu.Lock()
+				result.LastProgress = prog
+				lastProgressMu.Unlock()
+			} else if strings.Contains(strings.ToLower(line), "error") {
+				errorOutput.WriteString(line)
+				lastProgressMu.Lock()
+				pct := 0.0
+				if result.LastProgress != nil {
+					pct = result.LastProgress.Percent
+				}
+				errProg := &DownloadProgress{
+					Percent: pct,
+					Status:  "error: " + line,
+				}
+				safeSendProgress(progressChan, *errProg)
+				errorSent = true
+				lastProgressMu.Unlock()
+			}
+			// 解析文件路径
+			if strings.Contains(line, "[download] Destination:") {
+				filePath := strings.TrimSpace(strings.SplitN(line, "Destination:", 2)[1])
+				if !filepath.IsAbs(filePath) && options.OutputDir != "" {
+					filePath = filepath.Join(options.OutputDir, filePath)
+				}
+				lastProgressMu.Lock()
+				if result.LastProgress != nil {
+					result.LastProgress.FilePath = filePath
+					result.FilePath = filePath
+				}
+				lastProgressMu.Unlock()
+			}
+			if strings.Contains(line, "[Merger] Merging formats into") {
+				filePath := strings.TrimSpace(strings.SplitN(line, "Merging formats into", 2)[1])
+				filePath = strings.Trim(filePath, "\"")
+				if !filepath.IsAbs(filePath) && options.OutputDir != "" {
+					filePath = filepath.Join(options.OutputDir, filePath)
+				}
+				lastProgressMu.Lock()
+				if result.LastProgress != nil {
+					result.LastProgress.FilePath = filePath
+					result.FilePath = filePath
+				}
+				lastProgressMu.Unlock()
+			}
+		}
+	}()
+
+	// 解析 stderr
+	go func() {
+		scanner := bufio.NewScanner(stderr)
+		for scanner.Scan() {
+			line := scanner.Text()
+			errorOutput.WriteString(line + "\n") // 收集错误输出用于后续分析
+
+			if prog, ok := e.parseProgress(line); ok {
+				prog.Status = line
+				safeSendProgress(progressChan, *prog)
+				lastProgressMu.Lock()
+				result.LastProgress = prog
+				lastProgressMu.Unlock()
+			} else if strings.Contains(strings.ToLower(line), "error") {
+				lastProgressMu.Lock()
+				pct := 0.0
+				if result.LastProgress != nil {
+					pct = result.LastProgress.Percent
+				}
+				errProg := &DownloadProgress{
+					Percent: pct,
+					Status:  "error: " + line,
+				}
+				safeSendProgress(progressChan, *errProg)
+				errorSent = true
+				lastProgressMu.Unlock()
+			}
+			// 解析文件路径
+			if strings.Contains(line, "[download] Destination:") {
+				filePath := strings.TrimSpace(strings.SplitN(line, "Destination:", 2)[1])
+				if !filepath.IsAbs(filePath) && options.OutputDir != "" {
+					filePath = filepath.Join(options.OutputDir, filePath)
+				}
+				lastProgressMu.Lock()
+				if result.LastProgress != nil {
+					result.LastProgress.FilePath = filePath
+					result.FilePath = filePath
+				}
+				lastProgressMu.Unlock()
+			}
+			if strings.Contains(line, "[Merger] Merging formats into") {
+				filePath := strings.TrimSpace(strings.SplitN(line, "Merging formats into", 2)[1])
+				filePath = strings.Trim(filePath, "\"")
+				if !filepath.IsAbs(filePath) && options.OutputDir != "" {
+					filePath = filepath.Join(options.OutputDir, filePath)
+				}
+				lastProgressMu.Lock()
+				if result.LastProgress != nil {
+					result.LastProgress.FilePath = filePath
+					result.FilePath = filePath
+				}
+				lastProgressMu.Unlock()
+			}
+		}
+	}()
+
+	// 等待命令完成
+	err = cmd.Wait()
+	result.ErrorOutput = errorOutput.String()
+
+	// 如果进程异常退出且未发送过错误信息，构造错误进度发送
+	if err != nil && !errorSent {
+		lastProgressMu.Lock()
+		pct := 0.0
+		var fp, title string
+		if result.LastProgress != nil {
+			pct = result.LastProgress.Percent
+			fp = result.LastProgress.FilePath
+			title = result.LastProgress.Title
+		}
+		errProg := DownloadProgress{
+			Percent:  pct,
+			Status:   "error: download failed: " + err.Error(),
+			FilePath: fp,
+			Title:    title,
+		}
+		safeSendProgress(progressChan, errProg)
+		errorSent = true
+		lastProgressMu.Unlock()
+	}
+
+	// 下载完成后，如果指定了 TaskID 但文件路径不是 TaskID，则重命名文件
+	lastProgressMu.Lock()
+	if options.TaskID != "" && result.LastProgress != nil && result.LastProgress.FilePath != "" {
+		dir := filepath.Dir(result.LastProgress.FilePath)
+		baseName := filepath.Base(result.LastProgress.FilePath)
+		ext := filepath.Ext(baseName)
+
+		if !strings.HasPrefix(baseName, options.TaskID) {
+			newFileName := options.TaskID + ext
+			newFilePath := filepath.Join(dir, newFileName)
+
+			if _, statErr := os.Stat(newFilePath); os.IsNotExist(statErr) {
+				if renameErr := os.Rename(result.LastProgress.FilePath, newFilePath); renameErr == nil {
+					result.LastProgress.FilePath = newFilePath
+					result.FilePath = newFilePath
+				}
+			} else if statErr == nil {
+				os.Remove(result.LastProgress.FilePath)
+				result.LastProgress.FilePath = newFilePath
+				result.FilePath = newFilePath
+			}
+		}
+	}
+	lastProgressMu.Unlock()
+
+	// 发送最终进度
+	lastProgressMu.Lock()
+	if result.LastProgress != nil {
+		if result.LastProgress.Percent >= 100 && result.LastProgress.FilePath == "" && options.TaskID != "" && options.OutputDir != "" && !errorSent {
+			videoExts := []string{".mp4", ".mkv", ".webm", ".avi", ".mov", ".flv", ".wmv", ".m4v"}
+			for _, ext := range videoExts {
+				testPath := filepath.Join(options.OutputDir, options.TaskID+ext)
+				if _, statErr := os.Stat(testPath); statErr == nil {
+					result.LastProgress.FilePath = testPath
+					result.FilePath = testPath
+					break
+				}
+			}
+
+			if result.LastProgress.FilePath == "" {
+				if options.OutputDir != "" {
+					cmd := exec.Command(e.execPath, "--simulate", "--print", "filename", url)
+					output, getErr := cmd.Output()
+					if getErr == nil {
+						filename := strings.TrimSpace(string(output))
+						if filename != "" {
+							result.LastProgress.FilePath = filepath.Join(options.OutputDir, filename)
+							result.FilePath = filepath.Join(options.OutputDir, filename)
+						}
+					}
+				}
+			}
+		}
+
+		if result.VideoTitle != "" {
+			result.LastProgress.Title = result.VideoTitle
+		}
+		if result.LastProgress.FilePath != "" && !filepath.IsAbs(result.LastProgress.FilePath) {
+			if options.OutputDir != "" {
+				result.LastProgress.FilePath = filepath.Join(options.OutputDir, result.LastProgress.FilePath)
+				result.FilePath = filepath.Join(options.OutputDir, result.FilePath)
+			} else {
+				if absPath, absErr := filepath.Abs(result.LastProgress.FilePath); absErr == nil {
+					result.LastProgress.FilePath = absPath
+					result.FilePath = absPath
+				}
+			}
+		}
+
+		finalProgress := *result.LastProgress
+		lastProgressMu.Unlock()
+		if !errorSent {
+			safeSendProgress(progressChan, finalProgress)
+		}
+	} else {
+		lastProgressMu.Unlock()
+	}
+
+	// 处理结果
+	if err != nil {
+		result.Error = fmt.Errorf("download failed: %w", err)
+	} else {
+		result.Success = true
+	}
+
+	return result
 }
 
 // parseProgress 解析 yt-dlp 进度输出

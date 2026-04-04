@@ -617,7 +617,7 @@ func cleanupTempFiles(filePath string) error {
 	return nil
 }
 
-// RetryTask 重新执行任务（克隆旧任务为新任务）
+// RetryTask 重新执行任务（原位更新旧任务 ID，保留进度以便续传）
 // POST /api/v1/tasks/{id}/retry
 func (h *TaskHandler) RetryTask(w http.ResponseWriter, r *http.Request) {
 	// 获取用户信息
@@ -639,14 +639,15 @@ func (h *TaskHandler) RetryTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 查询旧任务信息
+	// 查询旧任务信息（包含 use_cookies）
 	var userID int64
 	var url, status string
 	var quality, engineType, batchID sql.NullString
+	var useCookies int // 0: 纯净模式, 1: 认证模式
 
 	err = h.db.QueryRow(`
-		SELECT user_id, url, status, quality, engine, batch_id FROM tasks WHERE id = ?
-	`, taskID).Scan(&userID, &url, &status, &quality, &engineType, &batchID)
+		SELECT user_id, url, status, quality, engine, batch_id, use_cookies FROM tasks WHERE id = ?
+	`, taskID).Scan(&userID, &url, &status, &quality, &engineType, &batchID, &useCookies)
 	if err == sql.ErrNoRows {
 		writeError(w, http.StatusNotFound, "任务不存在")
 		return
@@ -669,59 +670,40 @@ func (h *TaskHandler) RetryTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 生成新任务 ID
-	newTaskID := generateTaskID()
-
-	// 克隆任务到数据库
-	qualityVal := ""
-	if quality.Valid {
-		qualityVal = quality.String
-	}
-	engineVal := ""
-	if engineType.Valid {
-		engineVal = engineType.String
-	}
-	batchIDVal := sql.NullString{}
-	if batchID.Valid {
-		batchIDVal = batchID
-	}
-
+	// 原位更新任务状态为 queued，保留当前进度（以便 yt-dlp 续传）
 	_, err = h.db.Exec(`
-		INSERT INTO tasks (id, user_id, url, status, quality, engine, batch_id, progress, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)
-	`, newTaskID, userID, url, string(engine.TaskStatusQueued), qualityVal, engineVal, batchIDVal, time.Now())
+		UPDATE tasks SET status = ?, error_message = NULL, started_at = NULL, completed_at = NULL, updated_at = ? WHERE id = ?
+	`, string(engine.TaskStatusQueued), time.Now(), taskID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "创建新任务失败")
+		writeError(w, http.StatusInternalServerError, "更新任务状态失败")
 		return
 	}
 
-	// 如果是批量任务的一部分，更新 batch_tasks 的 total_count
-	if batchIDVal.Valid && batchIDVal.String != "" {
-		_, _ = h.db.Exec(`
-			UPDATE batch_tasks SET total_count = total_count + 1 WHERE id = ?
-		`, batchIDVal.String)
-	}
-
-	// 构造新任务加入调度器
+	// 构造任务实例（保留原 ID）
 	opts := engine.DownloadOptions{
-		OutputDir: h.outputDir,
-		TaskID:    newTaskID,
+		OutputDir:  h.outputDir,
+		TaskID:     taskID, // 保留原 ID
+		UserID:     int(userID),
+		UserRole:   claims.Role,
+		UserAgent:  r.UserAgent(),
+		UseCookies: useCookies == 1, // 从数据库读取的 use_cookies 标志
 	}
-	if qualityVal != "" {
-		opts.Quality = qualityVal
+	if quality.Valid {
+		opts.Quality = quality.String
 	}
 
-	newTask := &engine.Task{
-		ID:        newTaskID,
+	existingTask := &engine.Task{
+		ID:        taskID, // 保留原 ID
 		URL:       url,
 		Options:   opts,
 		Status:    engine.TaskStatusQueued,
 		CreatedAt: time.Now(),
 	}
 
-	if err := h.scheduler.AddTask(newTask); err != nil {
-		// 如果加入调度器失败，回滚数据库记录
-		_, _ = h.db.Exec(`DELETE FROM tasks WHERE id = ?`, newTaskID)
+	// 将任务推入调度器队列
+	if err := h.scheduler.AddTask(existingTask); err != nil {
+		// 如果加入调度器失败，回滚数据库状态
+		_, _ = h.db.Exec(`UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?`, status, time.Now(), taskID)
 		writeError(w, http.StatusInternalServerError, "加入任务队列失败")
 		return
 	}
@@ -734,18 +716,17 @@ func (h *TaskHandler) RetryTask(w http.ResponseWriter, r *http.Request) {
 		IPAddress: r.RemoteAddr,
 		UserAgent: r.UserAgent(),
 		Detail: map[string]interface{}{
-			"old_task_id": taskID,
-			"new_task_id": newTaskID,
-			"url":         url,
+			"task_id":    taskID,
+			"url":        url,
+			"use_cookies": useCookies,
 		},
 		CreatedAt: time.Now(),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"success":     true,
-		"message":     "任务已重新加入队列",
-		"new_task_id": newTaskID,
-		"old_task_id": taskID,
+		"success": true,
+		"message": "任务已重新加入队列",
+		"task_id": taskID,
 	})
 }
 

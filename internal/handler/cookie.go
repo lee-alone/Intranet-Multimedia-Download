@@ -680,6 +680,7 @@ func processAndValidateCookie(content, expectedDomain string) (string, error) {
 // 2. 子域名 → 父域名：www.bilibili.com 匹配 bilibili.com
 // 3. 父域名 → 子域名：bilibili.com 匹配 www.bilibili.com
 //    （父域名的 Cookie 通常对所有子域名有效）
+// 4. 关联域名匹配：youtube.com 和 google.com（SSO 认证相关）
 func isDomainRelated(domain, expected string) bool {
 	if domain == expected {
 		return true
@@ -693,5 +694,43 @@ func isDomainRelated(domain, expected string) bool {
 	if strings.HasSuffix(expected, "."+domain) {
 		return true
 	}
+
+	// 关联域名匹配：YouTube 和 Google 的 SSO 认证相关
+	// YouTube 登录状态依赖 Google 的 Cookie（.youtube.com 和 .google.com 互通）
+	youtubeDomains := []string{"youtube.com", "youtube-nocookie.com", "youtu.be"}
+	googleDomains := []string{"google.com", "googleusercontent.com", "gstatic.com", "accounts.google.com"}
+
+	isYouTube := false
+	isGoogle := false
+
+	// 检查是否为 YouTube 相关域名
+	for _, yd := range youtubeDomains {
+		if domain == yd || strings.HasSuffix(domain, "."+yd) || strings.HasSuffix(yd, "."+domain) {
+			isYouTube = true
+			break
+		}
+		if expected == yd || strings.HasSuffix(expected, "."+yd) || strings.HasSuffix(yd, "."+expected) {
+			isYouTube = true
+			break
+		}
+	}
+
+	// 检查是否为 Google 相关域名
+	for _, gd := range googleDomains {
+		if domain == gd || strings.HasSuffix(domain, "."+gd) || strings.HasSuffix(gd, "."+domain) {
+			isGoogle = true
+			break
+		}
+		if expected == gd || strings.HasSuffix(expected, "."+gd) || strings.HasSuffix(gd, "."+expected) {
+			isGoogle = true
+			break
+		}
+	}
+
+	// 如果一个是 YouTube，另一个是 Google，则认为相关
+	if isYouTube && isGoogle {
+		return true
+	}
+
 	return false
 }

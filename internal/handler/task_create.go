@@ -21,9 +21,10 @@ var urlRegex = regexp.MustCompile(`^https?://[^\s]+$`)
 
 // CreateTaskRequest 创建任务请求
 type CreateTaskRequest struct {
-	URL      string `json:"url"`
-	Quality  string `json:"quality,omitempty"`
-	Priority int    `json:"priority,omitempty"`
+	URL        string `json:"url"`
+	Quality    string `json:"quality,omitempty"`
+	Priority   int    `json:"priority,omitempty"`
+	UseCookies bool   `json:"use_cookies,omitempty"`
 }
 
 // CreateTaskResponse 创建任务响应
@@ -42,9 +43,10 @@ type TaskCreateData struct {
 
 // BatchTaskRequest 批量任务请求
 type BatchTaskRequest struct {
-	URLs     []string `json:"urls"`
-	Quality  string   `json:"quality,omitempty"`
-	Priority int      `json:"priority,omitempty"`
+	URLs       []string `json:"urls"`
+	Quality    string   `json:"quality,omitempty"`
+	Priority   int      `json:"priority,omitempty"`
+	UseCookies bool     `json:"use_cookies,omitempty"`
 }
 
 // BatchTaskResponse 批量任务响应
@@ -128,20 +130,28 @@ func (h *TaskHandler) CreateTask(w http.ResponseWriter, r *http.Request) {
 		Priority: priority,
 		Status:   engine.TaskStatusQueued,
 		Options: engine.DownloadOptions{
-			Quality:   quality,
-			OutputDir: h.outputDir,
-			Timeout:   time.Duration(3600) * time.Second, // 默认 1 小时超时
-			TaskID:    taskID,                            // 传递 TaskID 用于生成确定的文件名
+			Quality:    quality,
+			OutputDir:  h.outputDir,
+			Timeout:    time.Duration(3600) * time.Second, // 默认 1 小时超时
+			TaskID:     taskID,                            // 传递 TaskID 用于生成确定的文件名
+			UserID:     int(claims.UserID),                // 注入用户身份
+			UserRole:   claims.Role,                       // 注入用户角色
+			UserAgent:  r.UserAgent(),                     // 注入浏览器 User-Agent
+			UseCookies: req.UseCookies,                    // 是否使用 Cookie
 		},
 		CreatedAt: time.Now(),
 	}
 
 	// 保存到数据库
 	nowStr := time.Now().Format("2006-01-02 15:04:05")
+	useCookiesInt := 0
+	if req.UseCookies {
+		useCookiesInt = 1
+	}
 	_, err := h.db.Exec(`
-		INSERT INTO tasks (id, user_id, url, status, quality, engine, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
-		`, taskID, int64(claims.UserID), req.URL, string(engine.TaskStatusQueued), quality, "", nowStr)
+		INSERT INTO tasks (id, user_id, url, status, quality, engine, use_cookies, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		`, taskID, int64(claims.UserID), req.URL, string(engine.TaskStatusQueued), quality, "", useCookiesInt, nowStr)
 	if err != nil {
 		log.Printf("Failed to insert task %s: %v", taskID, err)
 		writeError(w, http.StatusInternalServerError, "数据库操作失败")
@@ -279,6 +289,10 @@ func (h *TaskHandler) CreateBatchTask(w http.ResponseWriter, r *http.Request) {
 	// 创建任务列表
 	tasks := make([]TaskSummaryData, 0, len(validURLs))
 	createdTasks := make([]*engine.Task, 0, len(validURLs))
+	useCookiesInt := 0
+	if req.UseCookies {
+		useCookiesInt = 1
+	}
 	for _, url := range validURLs {
 		taskID := uuid.New().String()
 
@@ -289,10 +303,14 @@ func (h *TaskHandler) CreateBatchTask(w http.ResponseWriter, r *http.Request) {
 			Priority: priority,
 			Status:   engine.TaskStatusQueued,
 			Options: engine.DownloadOptions{
-				Quality:   quality,
-				OutputDir: h.outputDir,
-				Timeout:   time.Duration(3600) * time.Second,
-				TaskID:    taskID, // 传递 TaskID 用于生成确定的文件名
+				Quality:    quality,
+				OutputDir:  h.outputDir,
+				Timeout:    time.Duration(3600) * time.Second,
+				TaskID:     taskID, // 传递 TaskID 用于生成确定的文件名
+				UserID:     int(claims.UserID),                // 注入用户身份
+				UserRole:   claims.Role,                       // 注入用户角色
+				UserAgent:  r.UserAgent(),                     // 注入浏览器 User-Agent
+				UseCookies: req.UseCookies,                    // 是否使用 Cookie
 			},
 			BatchID:   batchID,
 			CreatedAt: time.Now(),
@@ -301,9 +319,9 @@ func (h *TaskHandler) CreateBatchTask(w http.ResponseWriter, r *http.Request) {
 		// 保存到数据库
 		nowStr := time.Now().Format("2006-01-02 15:04:05")
 		_, err := tx.Exec(`
-			INSERT INTO tasks (id, user_id, url, status, quality, engine, batch_id, created_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-		`, taskID, int64(claims.UserID), url, string(engine.TaskStatusQueued), quality, "", batchID, nowStr)
+			INSERT INTO tasks (id, user_id, url, status, quality, engine, batch_id, use_cookies, created_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`, taskID, int64(claims.UserID), url, string(engine.TaskStatusQueued), quality, "", batchID, useCookiesInt, nowStr)
 		if err != nil {
 			log.Printf("Failed to insert task %s to database: %v", taskID, err)
 			continue

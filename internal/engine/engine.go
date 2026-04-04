@@ -89,6 +89,7 @@ type DownloadOptions struct {
 	TaskID       string        // 任务 ID（用于生成确定的文件名）
 	UserID       int           // 用户 ID（用于获取用户 Cookie）
 	UserRole     string        // 用户角色（用于判断是否使用共享 Cookie）
+	UseCookies   bool          // 是否使用 Cookie（用户认证模式）
 }
 
 // EngineType 引擎类型

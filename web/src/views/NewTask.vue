@@ -10,6 +10,7 @@ const router = useRouter()
 const url = ref('')
 const quality = ref('best')
 const priority = ref('normal')
+const useCookies = ref(false)
 const isBatch = ref(false)
 const batchUrls = ref('')
 const loading = ref(false)
@@ -62,6 +63,7 @@ async function submitSingleTask(): Promise<ApiResponse<CreateTaskResult>> {
     url: url.value,
     quality: quality.value,
     priority: priorityMap[priority.value] || 1,
+    use_cookies: useCookies.value,
   })
 }
 
@@ -72,6 +74,7 @@ async function submitBatchTask(): Promise<ApiResponse<BatchTaskResult>> {
     urls: urls,
     quality: quality.value,
     priority: priorityMap[priority.value] || 1,
+    use_cookies: useCookies.value,
   })
 }
 
@@ -246,6 +249,23 @@ const priorityOptions = [
               {{ opt.label }}
             </option>
           </select>
+        </div>
+
+        <!-- Cookie 注入开关 -->
+        <div>
+          <label class="flex items-center cursor-pointer">
+            <input
+              v-model="useCookies"
+              type="checkbox"
+              class="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
+            />
+            <span class="ml-2 text-sm text-gray-700">
+              注入我的 Cookie（用于高码率/会员/受限内容）
+            </span>
+          </label>
+          <p class="mt-1 text-xs text-gray-500">
+            开启后将使用您导出的 Cookie 进行下载，适合需要登录才能观看的视频
+          </p>
         </div>
 
         <!-- 优先级选择 -->
