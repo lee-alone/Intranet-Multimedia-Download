@@ -261,23 +261,15 @@ async function handleSubmit() {
   loading.value = true
   saveSuccess.value = false
   formatError.value = ''
-  
+
   try {
-    alert('步骤 1/3：开始获取公钥...')
     const publicKey = await getPublicKey()
-    alert(`步骤 1/3 完成，公钥长度: ${publicKey.length}`)
-    
-    alert('步骤 2/3：开始加密数据...')
     const encryptedData = await encryptCookie(cookieContent.value, publicKey)
-    alert(`步骤 2/3 完成，密文长度: ${encryptedData.length}`)
-    
-    alert(`步骤 3/3：开始保存（域名: ${domain.value}）...`)
     await saveCookie(domain.value, encryptedData, isShared.value)
-    
-    alert('✅ 保存成功！')
+
     saveSuccess.value = true
     window.toast?.success('Cookie 已安全保存', 2000)
-    
+
     setTimeout(() => {
       saveSuccess.value = false
       cookieContent.value = ''
@@ -285,24 +277,10 @@ async function handleSubmit() {
       isShared.value = false
       autoDetectedDomain.value = ''
     }, 1500)
-    
+
     await fetchCookies()
   } catch (err: any) {
-    const parts = [
-      '❌ 保存失败！详细信息：',
-      '',
-      `错误类型: ${err?.constructor?.name || 'Unknown'}`,
-      `错误消息: ${err?.message || '(无)'}`,
-      `HTTP 状态: ${err?.response?.status || '(无)'}`,
-      `后端错误: ${err?.response?.data?.error || '(无)'}`,
-      `后端消息: ${err?.response?.data?.message || '(无)'}`,
-    ]
-    
-    // 尝试打印完整错误对象
-    console.error('[Cookie 完整错误对象]', JSON.stringify(err, null, 2))
-    console.error('[Cookie 完整错误对象] err.response:', err?.response)
-    
-    alert(parts.join('\n'))
+    console.error('[Cookie 保存失败]', err)
     formatError.value = err?.message || '保存失败'
     window.toast?.error(formatError.value, 5000)
   } finally {

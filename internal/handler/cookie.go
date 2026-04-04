@@ -118,11 +118,9 @@ func (h *CookieHandler) GetPublicKey(w http.ResponseWriter, r *http.Request) {
 
 // SaveCookie 保存加密的 Cookie
 func (h *CookieHandler) SaveCookie(w http.ResponseWriter, r *http.Request) {
-	// 🚩🚩🚩 【防崩溃保护】捕获任何可能的 Panic，防止连接断开
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("🚨🚨🚨 [SaveCookie] 捕获到 Panic! 错误详情: %v", r)
-			// 尝试写入错误响应（如果还没写入）
+			log.Printf("🚨 [SaveCookie] 捕获到 Panic: %v", r)
 			writeJSON(w, http.StatusInternalServerError, SaveCookieResponse{
 				Success: false,
 				Error:   fmt.Sprintf("服务器内部错误: %v", r),
@@ -135,17 +133,21 @@ func (h *CookieHandler) SaveCookie(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 从 context 获取用户信息（由 AuthMiddleware 注入）
 	userID, role, ok := getUserFromContext(r)
 	if !ok {
+		writeJSON(w, http.StatusUnauthorized, SaveCookieResponse{
+			Success: false,
+			Error:   "Missing user context",
+		})
 		return
 	}
 
 	var req SaveCookieRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		log.Printf("🚨 [SaveCookie] 请求体解析失败: %v", err)
 		writeJSON(w, http.StatusBadRequest, SaveCookieResponse{
 			Success: false,
-			Error:   "Invalid request body",
+			Error:   fmt.Sprintf("Invalid request body: %v", err),
 		})
 		return
 	}
@@ -183,20 +185,14 @@ func (h *CookieHandler) SaveCookie(w http.ResponseWriter, r *http.Request) {
 	isShared := false
 	if req.IsShared {
 		if role != "admin" {
-			// 非管理员尝试设置共享，返回 403
 			writeJSON(w, http.StatusForbidden, SaveCookieResponse{
 				Success: false,
 				Error:   "Permission denied: only administrators can set shared cookies",
 			})
 			return
 		}
-		// 管理员设置共享
 		isShared = true
 	}
-
-	// 🚩 详细日志：保存到数据库前的数据检查
-	log.Printf("🔍 [SaveCookie] 用户ID: %d, 角色: %s, 域名: %s, 共享: %t, 解密后内容长度: %d 字节",
-		userID, role, req.Domain, isShared, len(decryptedContent))
 
 	// 保存到数据库
 	result, err := h.db.Exec(`
@@ -215,7 +211,6 @@ func (h *CookieHandler) SaveCookie(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 🚩 验证 SQL 执行结果
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
 		log.Printf("🚨 [SaveCookie] 获取影响行数失败: %v", err)
@@ -225,7 +220,7 @@ func (h *CookieHandler) SaveCookie(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	log.Printf("✅ [SaveCookie] 保存成功, 影响行数: %d", rowsAffected)
+	log.Printf("✅ [SaveCookie] 保存成功, UserID: %d, Domain: %s, 影响行数: %d", userID, req.Domain, rowsAffected)
 
 	writeJSON(w, http.StatusOK, SaveCookieResponse{
 		Success: true,
@@ -311,7 +306,7 @@ func (h *CookieHandler) ListCookies(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var c CookieInfo
 		if err := rows.Scan(&c.Domain, &c.IsShared, &c.UpdatedAt); err != nil {
-			log.Printf("Failed to scan cookie row: %v", err)
+			log.Printf("🚨 [ListCookies] Scan 失败: %v", err)
 			continue
 		}
 		cookies = append(cookies, c)
@@ -378,77 +373,43 @@ func (h *CookieHandler) DeleteCookie(w http.ResponseWriter, r *http.Request) {
 // 后端使用 RSA 私钥解密 AES Key，再用 AES-GCM 解密内容
 // 数据格式：[RSA 加密的 AES Key 长度 (2 字节)][RSA 加密的 AES Key][AES-GCM Nonce][AES-GCM 加密的内容]
 func (h *CookieHandler) decryptEnvelope(encryptedDataBase64 string) (string, error) {
-	// 🚩 调试日志
-	log.Printf("🔍 [decryptEnvelope] 输入数据长度: %d", len(encryptedDataBase64))
-
-	// 清洗 Base64 字符串中的空白字符（换行符、空格等），防止 StdEncoding 报错
+	// 清洗 Base64 字符串中的空白字符
 	cleanData := strings.Map(func(r rune) rune {
 		if r == ' ' || r == '\n' || r == '\r' || r == '\t' {
-			return -1 // 删除该字符
+			return -1
 		}
 		return r
 	}, encryptedDataBase64)
 
-	// 🚩 调试日志
-	log.Printf("🔍 [decryptEnvelope] 清洗后数据长度: %d", len(cleanData))
-
-	// 使用清洗后的数据解码
 	encryptedData, err := base64.StdEncoding.DecodeString(cleanData)
 	if err != nil {
-		log.Printf("🚨 [decryptEnvelope] Base64 解码失败: %v", err)
 		return "", fmt.Errorf("failed to decode base64: %w", err)
 	}
 
-	// 🚩 调试日志
-	log.Printf("🔍 [decryptEnvelope] Base64 解码成功, 二进制数据长度: %d", len(encryptedData))
-
-	// 🚩🚩🚩 【防崩溃保护】严格的最小长度检查
-	// 信封格式：[2字节 AES Key 长度][RSA 加密的 AES Key][AES-GCM 数据]
-	// AES-GCM 数据格式：[12字节 Nonce][加密内容][16字节 Auth Tag]
-	// 最小安全长度：2(长度字段) + 256(RSA-2048 加密后的 AES Key) + 12(GCM Nonce) + 16(GCM Tag) = 286 字节
-	// 但我们使用动态检查，不硬编码 RSA 密文长度
-
 	dataLen := len(encryptedData)
 
-	// 🚩 检查 1: 数据必须至少有 2 字节用于读取长度字段
 	if dataLen < 2 {
-		log.Printf("🚨 [decryptEnvelope] 数据过短，无法读取长度字段: %d 字节", dataLen)
 		return "", fmt.Errorf("密文数据过短，无法解析长度字段")
 	}
 
 	// 读取 RSA 加密的 AES Key 长度
 	aesKeyLen := int(encryptedData[0])<<8 | int(encryptedData[1])
 
-	log.Printf("🔍 [decryptEnvelope] AES Key 长度(从数据读取): %d", aesKeyLen)
-
-	// 🚩 检查 2: AES Key 长度必须合理（AES-128: 16字节, AES-256: 32字节）
-	// RSA-2048 加密后的密文长度固定为 256 字节
 	if aesKeyLen <= 0 || aesKeyLen > 512 {
-		log.Printf("🚨 [decryptEnvelope] AES Key 长度异常: %d (预期 16-256 字节)", aesKeyLen)
 		return "", fmt.Errorf("密文格式错误: AES Key 长度 %d 超出合理范围", aesKeyLen)
 	}
 
-	// 🚩 检查 3: 总数据长度必须足够
-	// 2(长度字段) + aesKeyLen(RSA 密文) + 12(GCM Nonce) + 16(GCM Tag) = 最小 30 字节
 	minRequiredLen := 2 + aesKeyLen + 12 + 16
 	if dataLen < minRequiredLen {
-		log.Printf("🚨 [decryptEnvelope] 密文完整性校验失败: 需要至少 %d 字节，实际 %d 字节",
-			minRequiredLen, dataLen)
 		return "", fmt.Errorf("密文数据不完整: 需要至少 %d 字节，实际 %d 字节", minRequiredLen, dataLen)
 	}
 
-	// 🚩 检查 4: 防止切片越界 - 再次验证
 	if 2+aesKeyLen > dataLen {
-		log.Printf("🚨 [decryptEnvelope] 切片越界保护: 2+%d > %d", aesKeyLen, dataLen)
 		return "", fmt.Errorf("密文数据损坏，无法安全提取 AES Key")
 	}
 
-	// ✅ 所有检查通过，现在可以安全地进行切片操作
 	encryptedAESKey := encryptedData[2 : 2+aesKeyLen]
 	aesGCMData := encryptedData[2+aesKeyLen:]
-
-	log.Printf("🔍 [decryptEnvelope] 提取到 encryptedAESKey 长度: %d, aesGCMData 长度: %d",
-		len(encryptedAESKey), len(aesGCMData))
 
 	// 使用 RSA 私钥解密 AES Key (OAEP with SHA-256)
 	aesKey, err := rsa.DecryptOAEP(
@@ -459,21 +420,14 @@ func (h *CookieHandler) decryptEnvelope(encryptedDataBase64 string) (string, err
 		nil,
 	)
 	if err != nil {
-		log.Printf("🚨 [decryptEnvelope] RSA 解密 AES Key 失败: %v", err)
 		return "", fmt.Errorf("failed to decrypt AES key: %w", err)
 	}
 
-	log.Printf("🔍 [decryptEnvelope] RSA 解密成功, AES Key 长度: %d", len(aesKey))
-
 	// 使用 AES-GCM 解密内容
-	// AES-GCM 格式：[Nonce (12 字节)][加密内容][Auth Tag (16 字节)]
 	decryptedContent, err := decryptAESGCM(aesKey, aesGCMData)
 	if err != nil {
-		log.Printf("🚨 [decryptEnvelope] AES-GCM 解密失败: %v", err)
 		return "", fmt.Errorf("failed to decrypt content with AES-GCM: %w", err)
 	}
-
-	log.Printf("🔍 [decryptEnvelope] AES-GCM 解密成功, 明文长度: %d", len(decryptedContent))
 
 	return string(decryptedContent), nil
 }
@@ -620,7 +574,7 @@ func parseUint64(s string) (uint64, error) {
 
 // getUserFromContext 从 context 获取用户信息
 func getUserFromContext(r *http.Request) (int, string, bool) {
-	claims, ok := r.Context().Value("claims").(*auth.Claims)
+	claims, ok := r.Context().Value(ClaimsContextKey).(*auth.Claims)
 	if !ok {
 		return 0, "", false
 	}

@@ -20,63 +20,38 @@ const ClaimsContextKey contextKey = "claims"
 func AuthMiddleware(jwtMgr *auth.JWTManager) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			var tokenString string
-			var err error
+			// 放行 OPTIONS 预检请求
+			if r.Method == http.MethodOptions {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
 
-			// 🚩 详细日志：记录每个进入中间件的请求
-			log.Printf("🔍 [Middleware] 收到请求: %s %s (来自: %s)", r.Method, r.URL.Path, r.RemoteAddr)
+			var tokenString string
 
 			// 优先从 Authorization Header 读取
 			authHeader := r.Header.Get("Authorization")
-			log.Printf("🔍 [Middleware] Authorization Header: %s", func() string {
-				if authHeader == "" {
-					return "(空)"
-				}
-				if len(authHeader) < 15 {
-					return authHeader
-				}
-				return authHeader[:15] + "..."
-			}())
-
 			if authHeader != "" {
 				if len(authHeader) < 7 || authHeader[:7] != "Bearer " {
-					log.Printf("🚨 [Middleware] 拒绝请求: %s %s - Authorization Header 格式错误: %s", r.Method, r.URL.Path, authHeader)
+					log.Printf("🚨 [Middleware] Authorization Header 格式错误: %s", authHeader)
 					writeError(w, http.StatusUnauthorized, "Invalid authorization header format")
 					return
 				}
 				tokenString = authHeader[7:]
-				log.Printf("🔍 [Middleware] 从 Authorization Header 提取 Token: %s...", func() string {
-					if len(tokenString) > 20 {
-						return tokenString[:20]
-					}
-					return tokenString
-				}())
 			} else {
-				// 降级：从 URL 参数读取（仅用于下载等特定场景）
+				// 降级：从 URL 参数读取
 				tokenString = r.URL.Query().Get("token")
 				if tokenString == "" {
-					log.Printf("🚨 [Middleware] 拒绝请求: %s %s - 缺少授权令牌 (无 Authorization Header 且无 token 参数)", r.Method, r.URL.Path)
 					writeError(w, http.StatusUnauthorized, "Missing authorization token")
 					return
 				}
-				log.Printf("🔍 [Middleware] 从 URL 参数提取 Token: %s...", func() string {
-					if len(tokenString) > 20 {
-						return tokenString[:20]
-					}
-					return tokenString
-				}())
 			}
 
 			claims, err := jwtMgr.ValidateToken(tokenString)
 			if err != nil {
-				log.Printf("🚨 [Middleware] 拒绝请求: %s %s - Token 验证失败: %v", r.Method, r.URL.Path, err)
+				log.Printf("🚨 [Middleware] Token 验证失败: %v", err)
 				writeError(w, http.StatusUnauthorized, "Invalid or expired token")
 				return
 			}
-
-			// 🚩 验证成功，记录日志
-			log.Printf("✅ [Middleware] Token 验证成功: %s %s - 用户ID: %d, 角色: %s",
-				r.Method, r.URL.Path, claims.UserID, claims.Role)
 
 			// 将用户信息添加到请求上下文
 			ctx := context.WithValue(r.Context(), ClaimsContextKey, claims)
@@ -93,7 +68,6 @@ func GetClaimsFromContext(ctx context.Context) (*auth.Claims, bool) {
 
 // writeJSON 写入 JSON 响应
 func writeJSON(w http.ResponseWriter, status int, data interface{}) {
-	// 🚩 关键修复：必须先设置 Header，再调用 WriteHeader
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	if err := json.NewEncoder(w).Encode(data); err != nil {

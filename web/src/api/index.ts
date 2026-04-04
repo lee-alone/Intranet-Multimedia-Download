@@ -47,22 +47,9 @@ const api: AxiosInstance = axios.create({
 // 请求拦截器 - 添加认证 token
 api.interceptors.request.use(
   (config) => {
-    // 统一从 localStorage 获取 token
     const token = localStorage.getItem('token')
     if (token) {
       config.headers.Authorization = `Bearer ${token}`
-      // 🚩 详细打印 Token 信息，用于排查认证问题
-      console.log('🚀 [API 请求] 发送请求:', {
-        url: config.url,
-        method: config.method,
-        tokenPrefix: token.substring(0, 15) + '...',
-        tokenLength: token.length,
-      })
-    } else {
-      console.warn('⚠️ [API 请求] 发送请求时发现无 Token!', {
-        url: config.url,
-        method: config.method,
-      })
     }
     return config
   },
@@ -75,13 +62,6 @@ api.interceptors.request.use(
 // 响应拦截器 - 统一错误处理
 api.interceptors.response.use(
   (response: ApiAxiosResponse) => {
-    // 🚩 暴力打印原始响应详情，用于排查"看不见的错误"
-    console.log('🚩 [API 拦截器] 原始响应详情:', {
-      status: response.status,
-      statusText: response.statusText,
-      data: response.data,
-      headers: response.headers,
-    })
     return response
   },
   (error) => {
@@ -211,27 +191,17 @@ export async function getPublicKey(): Promise<string> {
  * 保存 Cookie（加密后）
  */
 export async function saveCookie(domain: string, encryptedData: string, isShared = false): Promise<void> {
-  try {
-    const response = await post('/user/cookies', {
-      domain,
-      encrypted_data: encryptedData,
-      is_shared: isShared,
-    })
-    // 🔍 暴力打印后端原始响应，彻底杜绝信息被吞
-    console.log('[API] saveCookie 原始响应:', response)
-    
-    if (!response.success) {
-      const errMsg = response.error || response.message || '未知业务错误'
-      alert(`[API 业务错误] ${errMsg}\n\n完整响应:\n${JSON.stringify(response, null, 2)}`)
-      const error = new Error(errMsg)
-      ;(error as any).response = { data: response }
-      throw error
-    }
-  } catch (err: any) {
-    // 🔍 如果是网络层错误（如 400/500），Axios 会直接 reject 到这里
-    const responseData = err.response?.data
-    alert(`[API 网络/系统异常] ${err.message}\n\nHTTP 状态: ${err.response?.status}\n完整响应:\n${JSON.stringify(responseData, null, 2)}`)
-    throw err
+  const response = await post('/user/cookies', {
+    domain,
+    encrypted_data: encryptedData,
+    is_shared: isShared,
+  })
+
+  if (!response.success) {
+    const errMsg = response.error || response.message || '未知业务错误'
+    const error = new Error(errMsg)
+    ;(error as any).response = { data: response }
+    throw error
   }
 }
 
@@ -239,9 +209,9 @@ export async function saveCookie(domain: string, encryptedData: string, isShared
  * 获取 Cookie 列表
  */
 export async function getCookies(): Promise<CookieInfo[]> {
-  const response = await get<{ data: CookieInfo[] }>('/user/cookies')
+  const response = await get<CookieInfo[]>('/user/cookies')
   if (response.success && response.data) {
-    return response.data.data || []
+    return response.data
   }
   throw new Error('获取 Cookie 列表失败')
 }

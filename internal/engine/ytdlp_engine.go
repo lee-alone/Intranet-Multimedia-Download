@@ -140,6 +140,12 @@ func (e *YtdlpEngine) Download(ctx context.Context, url string, options Download
 			"--merge-output-format", "mp4", // 强制合并输出为 mp4 格式
 		}
 
+		// 指定 ffmpeg 路径（与 yt-dlp.exe 同目录）
+		ffmpegPath := filepath.Join(filepath.Dir(e.execPath), "ffmpeg.exe")
+		if _, err := os.Stat(ffmpegPath); err == nil {
+			args = append(args, "--ffmpeg-location", ffmpegPath)
+		}
+
 		// 输出目录和格式
 		outputTemplate := ""
 		if options.OutputDir != "" {
