@@ -140,6 +140,33 @@ func (s *Server) registerRoutes() {
 	// 协议同意路由（需要认证）
 	s.mux.Handle("/api/v1/agreement/agree", authMiddleware(http.HandlerFunc(authHandler.AgreeToAgreement)))
 
+	// Cookie 管理路由（需要认证）
+	// 获取公钥（用于前端加密）
+	s.mux.Handle("/api/v1/crypto/pubkey", authMiddleware(http.HandlerFunc(s.cookieHandler.GetPublicKey)))
+
+	// Cookie 保存、获取、删除
+	s.mux.Handle("/api/v1/user/cookies", authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPost:
+			s.cookieHandler.SaveCookie(w, r)
+		case http.MethodGet:
+			s.cookieHandler.ListCookies(w, r)
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	})))
+
+	s.mux.Handle("/api/v1/user/cookie", authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			s.cookieHandler.GetCookie(w, r)
+		case http.MethodDelete:
+			s.cookieHandler.DeleteCookie(w, r)
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	})))
+
 	// 批量任务路由
 	s.mux.Handle("/api/v1/tasks/batch", authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {

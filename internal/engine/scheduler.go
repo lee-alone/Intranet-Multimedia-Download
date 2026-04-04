@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -173,6 +174,22 @@ type TaskScheduler struct {
 	taskChan         chan *Task
 	running          int32
 	auditLogger      *audit.Logger // 审计日志记录器
+	cookieGetter     CookieGetter  // Cookie 获取接口（可选）
+	tempFiles        []string      // 临时文件列表（用于清理）
+	tempFilesMu      sync.Mutex    // 临时文件互斥锁
+}
+
+// CookieGetter 获取 Cookie 的接口
+type CookieGetter interface {
+	// GetCookieForDownload 根据用户ID、角色和URL域名获取 Cookie 内容
+	GetCookieForDownload(userID int, role string, urlDomain string) (string, error)
+}
+
+// SetCookieGetter 设置 Cookie 获取器
+func (s *TaskScheduler) SetCookieGetter(cg CookieGetter) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.cookieGetter = cg
 }
 
 // NewTaskScheduler 创建任务调度器
@@ -295,6 +312,42 @@ func (s *TaskScheduler) executeTask(task *Task) {
 		delete(s.cancels, task.ID)
 		s.mu.Unlock()
 		taskCancel() // 确保释放资源
+	}()
+
+	// 处理 Cookie 文件（如果配置了 CookieGetter）
+	var tempCookieFile string
+	var cookieFileDeleted bool
+	if s.cookieGetter != nil && task.Options.UserID > 0 {
+		// 从 URL 中提取域名
+		domain := extractDomainFromURL(task.URL)
+		if domain != "" {
+			cookieContent, err := s.cookieGetter.GetCookieForDownload(task.Options.UserID, task.Options.UserRole, domain)
+			if err == nil && cookieContent != "" {
+				// 创建临时 Cookie 文件
+				tempCookieFile, err = s.createTempCookieFile(cookieContent)
+				if err != nil {
+					log.Printf("警告：创建临时 Cookie 文件失败：%v", err)
+				} else {
+					// 更新下载选项中的 Cookie 文件路径
+					task.Options.CookieFile = tempCookieFile
+					log.Printf("任务 %s 使用用户 Cookie，域名：%s", task.ID, domain)
+				}
+			}
+		}
+	}
+
+	// 确保在所有退出路径下都清理临时 Cookie 文件
+	defer func() {
+		if tempCookieFile != "" && !cookieFileDeleted {
+			if err := os.Remove(tempCookieFile); err != nil {
+				// 文件可能已被 yt-dlp 启动后删除，忽略不存在的错误
+				if !os.IsNotExist(err) {
+					log.Printf("警告：清理临时 Cookie 文件失败：%s, 错误：%v", tempCookieFile, err)
+				}
+			} else {
+				log.Printf("已清理临时 Cookie 文件：%s", tempCookieFile)
+			}
+		}
 	}()
 
 	if s.engine == nil {
@@ -533,4 +586,70 @@ func (s *TaskScheduler) logTaskFailure(task *Task, errorMsg string) {
 			log.Printf("[AUDIT] 记录任务失败日志错误: %v", err)
 		}
 	}()
+}
+
+// extractDomainFromURL 从 URL 中提取域名
+func extractDomainFromURL(url string) string {
+	// 简单的域名提取，去除协议和路径
+	// 例如：https://www.bilibili.com/video/xxx -> bilibili.com
+	url = strings.ToLower(url)
+	
+	// 去除协议
+	if idx := strings.Index(url, "://"); idx >= 0 {
+		url = url[idx+3:]
+	}
+	
+	// 去除路径
+	if idx := strings.Index(url, "/"); idx >= 0 {
+		url = url[:idx]
+	}
+	
+	// 去除端口号
+	if idx := strings.Index(url, ":"); idx >= 0 {
+		url = url[:idx]
+	}
+	
+	// 去除 www. 前缀
+	url = strings.TrimPrefix(url, "www.")
+	
+	// 去除 m. 前缀（移动端）
+	url = strings.TrimPrefix(url, "m.")
+	
+	return url
+}
+
+// createTempCookieFile 创建临时 Cookie 文件
+func (s *TaskScheduler) createTempCookieFile(content string) (string, error) {
+	// 创建临时文件
+	tmpFile, err := os.CreateTemp("", "cookie_*.txt")
+	if err != nil {
+		return "", fmt.Errorf("创建临时 Cookie 文件失败：%w", err)
+	}
+	
+	tempPath := tmpFile.Name()
+	
+	// 写入 Cookie 内容
+	if _, err := tmpFile.WriteString(content); err != nil {
+		tmpFile.Close()
+		os.Remove(tempPath)
+		return "", fmt.Errorf("写入 Cookie 内容失败：%w", err)
+	}
+	
+	// 关闭文件
+	if err := tmpFile.Close(); err != nil {
+		os.Remove(tempPath)
+		return "", fmt.Errorf("关闭 Cookie 文件失败：%w", err)
+	}
+	
+	// 设置文件权限（仅所有者可读写）
+	if err := os.Chmod(tempPath, 0600); err != nil {
+		log.Printf("警告：设置 Cookie 文件权限失败：%v", err)
+	}
+	
+	// 记录临时文件（用于清理）
+	s.tempFilesMu.Lock()
+	s.tempFiles = append(s.tempFiles, tempPath)
+	s.tempFilesMu.Unlock()
+	
+	return tempPath, nil
 }

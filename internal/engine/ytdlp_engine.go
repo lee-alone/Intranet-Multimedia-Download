@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -246,6 +247,21 @@ func (e *YtdlpEngine) Download(ctx context.Context, url string, options Download
 			}
 			safeSendProgress(progressChan, DownloadProgress{Status: result.Error.Error()})
 			return
+		}
+
+		// 安全增强：yt-dlp 启动后立即删除临时 Cookie 文件
+		// yt-dlp 在启动时会将 Cookie 内容加载到内存，磁盘文件不再需要
+		if options.CookieFile != "" {
+			if err := os.Remove(options.CookieFile); err != nil {
+				if !os.IsNotExist(err) {
+					log.Printf("警告：yt-dlp 启动后删除临时 Cookie 文件失败：%s, 错误：%v", options.CookieFile, err)
+				}
+				// 标记为已删除，避免 scheduler 重复删除
+				options.CookieFile = ""
+			} else {
+				// 标记为已删除
+				options.CookieFile = ""
+			}
 		}
 
 		// 解析进度输出

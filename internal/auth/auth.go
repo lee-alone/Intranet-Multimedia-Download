@@ -3,6 +3,8 @@ package auth
 
 import (
 	"crypto/rsa"
+	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"log"
@@ -170,4 +172,32 @@ func (m *JWTManager) GetRefreshExpiry() int {
 // GetExpiry 获取访问令牌过期时间（分钟）
 func (m *JWTManager) GetExpiry() int {
 	return int(m.expiry.Minutes())
+}
+
+// GetPublicKeyPEM 返回 PEM 格式的公钥字符串，用于前端加密
+func (m *JWTManager) GetPublicKeyPEM() (string, error) {
+	// 将 rsa.PublicKey 转换为 DER 格式
+	derBytes, err := x509.MarshalPKIXPublicKey(m.publicKey)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal public key: %w", err)
+	}
+
+	// 编码为 PEM 格式
+	block := &pem.Block{
+		Type:  "PUBLIC KEY",
+		Bytes: derBytes,
+	}
+
+	pemBytes := pem.EncodeToMemory(block)
+	return string(pemBytes), nil
+}
+
+// GetPrivateKey 返回 RSA 私钥对象（用于解密）
+func (m *JWTManager) GetPrivateKey() *rsa.PrivateKey {
+	return m.privateKey
+}
+
+// GetPublicKey 返回 RSA 公钥对象（用于加密验证）
+func (m *JWTManager) GetPublicKey() *rsa.PublicKey {
+	return m.publicKey
 }

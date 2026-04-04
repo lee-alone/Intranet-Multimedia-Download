@@ -16,6 +16,7 @@ import (
 	"github.com/campus/collector/internal/auth"
 	"github.com/campus/collector/internal/config"
 	"github.com/campus/collector/internal/engine"
+	"github.com/campus/collector/internal/handler"
 	"github.com/campus/collector/internal/logrotate"
 	"github.com/campus/collector/internal/middleware"
 )
@@ -38,6 +39,7 @@ type Server struct {
 	alertManager *alert.AlertManager
 	logRotator   *logrotate.Rotator
 	outputDir    string // 下载目录
+	cookieHandler *handler.CookieHandler // Cookie 处理器
 
 	// 健康检查状态
 	healthMutex  sync.RWMutex
@@ -103,6 +105,9 @@ func New(cfg *config.Config, db *sql.DB, scheduler *engine.TaskScheduler, output
 	// 创建白名单管理器
 	whitelistMgr := middleware.NewWhitelistManager(cfg.Download.Whitelist)
 
+	// 创建 Cookie 处理器
+	cookieHandler := handler.NewCookieHandler(db, jwtMgr)
+
 	// 创建告警管理器
 	alertConfig := alert.Config{
 		EnableDiskAlert:   cfg.Alert.EnableDiskAlert,
@@ -148,6 +153,7 @@ func New(cfg *config.Config, db *sql.DB, scheduler *engine.TaskScheduler, output
 		alertManager: alertManager,
 		logRotator:   logRotator,
 		outputDir:    outputDir,
+		cookieHandler: cookieHandler,
 		server: &http.Server{
 			Addr:         cfg.GetAddress(),
 			Handler:      mux,
@@ -174,6 +180,11 @@ func New(cfg *config.Config, db *sql.DB, scheduler *engine.TaskScheduler, output
 func (s *Server) Start() error {
 	// 设置调度器回调（必须在启动前设置）
 	s.setupSchedulerCallbacks()
+
+	// 设置调度器的 CookieGetter（使下载引擎能够获取用户 Cookie）
+	if s.cookieHandler != nil {
+		s.scheduler.SetCookieGetter(s.cookieHandler)
+	}
 
 	// 注册路由
 	s.registerRoutes()

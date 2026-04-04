@@ -40,6 +40,7 @@ const menuItems = [
   { name: '仪表盘', path: '/', icon: 'home' },
   { name: '任务列表', path: '/tasks', icon: 'list' },
   { name: '新建任务', path: '/tasks/new', icon: 'plus' },
+  { name: 'Cookie 管理', path: '/cookies', icon: 'key' },
   { name: '审计日志', path: '/audit', icon: 'shield', adminOnly: true },
   { name: '用户管理', path: '/users', icon: 'users', adminOnly: true },
   { name: '个人中心', path: '/profile', icon: 'user' },
@@ -100,6 +101,10 @@ const icons: Record<string, any> = {
   user: {
     viewBox: '0 0 24 24',
     path: 'M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z'
+  },
+  key: {
+    viewBox: '0 0 24 24',
+    path: 'M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z'
   },
 }
 

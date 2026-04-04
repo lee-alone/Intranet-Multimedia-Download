@@ -19,6 +19,7 @@ const viewComponents: Record<string, () => Promise<Component>> = {
   Audit: () => import('@/views/Audit.vue'),
   Users: () => import('@/views/Users.vue'),
   Profile: () => import('@/views/Profile.vue'),
+  Cookies: () => import('@/views/Cookies.vue'),
   NotFound: () => import('@/views/NotFound.vue'),
 }
 
@@ -100,6 +101,14 @@ const routes: RouteRecordRaw[] = [
         component: lazyLoad('Profile'),
         meta: {
           title: '个人中心',
+        } as CustomRouteMeta,
+      },
+      {
+        path: 'cookies',
+        name: 'Cookies',
+        component: lazyLoad('Cookies'),
+        meta: {
+          title: 'Cookie 管理',
         } as CustomRouteMeta,
       },
     ],

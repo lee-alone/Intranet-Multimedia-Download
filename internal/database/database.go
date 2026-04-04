@@ -69,12 +69,21 @@ func initDB(cfg *Config) (err error) {
 		"PRAGMA synchronous=NORMAL",
 		"PRAGMA foreign_keys=ON",
 		"PRAGMA busy_timeout=5000",
+		"PRAGMA journal_size_limit=67108864", // 64MB, 限制 WAL 文件大小
 	}
 	for _, pragma := range pragmas {
 		if _, err := db.Exec(pragma); err != nil {
 			return fmt.Errorf("failed to set pragma %s: %w", pragma, err)
 		}
 	}
+
+	// 🚩 验证 SQLite 版本是否支持 ON CONFLICT ... DO UPDATE (UPSERT)
+	// SQLite 3.24.0+ 才支持 UPSERT 语法
+	var sqliteVersion string
+	if err := db.QueryRow("SELECT sqlite_version()").Scan(&sqliteVersion); err != nil {
+		return fmt.Errorf("failed to get SQLite version: %w", err)
+	}
+	fmt.Printf("✅ SQLite version: %s\n", sqliteVersion)
 
 	return nil
 }

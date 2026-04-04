@@ -87,6 +87,8 @@ type DownloadOptions struct {
 	UserAgent    string        // User-Agent
 	Proxy        string        // 代理地址
 	TaskID       string        // 任务 ID（用于生成确定的文件名）
+	UserID       int           // 用户 ID（用于获取用户 Cookie）
+	UserRole     string        // 用户角色（用于判断是否使用共享 Cookie）
 }
 
 // EngineType 引擎类型
