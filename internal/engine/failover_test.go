@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -414,5 +415,368 @@ func TestEngineHealth_StatusString(t *testing.T) {
 		if result != test.expected {
 			t.Errorf("期望 %s, 得到 %s", test.expected, result)
 		}
+	}
+}
+
+// TestFailoverEngine_ImmediateFailover 测试即时故障转移功能
+func TestFailoverEngine_ImmediateFailover(t *testing.T) {
+	// 创建主引擎(会失败)
+	primary := NewMockEngine("yt-dlp", true, true)
+	primary.SetFailNext(true)
+
+	// 创建备用引擎(会成功)
+	backup := NewMockEngine("lux", true, true)
+	backup.SetFailNext(false)
+
+	config := FailoverConfig{
+		MaxFailures:          10, // 设置较大的阈值,避免触发全局切换
+		FailureWindow:        1 * time.Minute,
+		CooldownTime:         100 * time.Millisecond,
+		EnableAutoSwitch:     false, // 禁用全局切换
+		EnableAlert:          false,
+		EnableImmediateRetry: true, // 启用即时重试
+	}
+
+	fe := NewFailoverEngine(primary, backup, config)
+
+	ctx := context.Background()
+	options := DownloadOptions{
+		OutputDir: "/tmp",
+	}
+
+	progressChan := fe.Download(ctx, "http://test.com/video", options)
+
+	receivedProgress := false
+	lastStatus := ""
+	for p := range progressChan {
+		receivedProgress = true
+		lastStatus = p.Status
+		if p.Percent < 0 || p.Percent > 100 {
+			t.Errorf("进度百分比应在 0-100 之间，得到 %f", p.Percent)
+		}
+	}
+
+	if !receivedProgress {
+		t.Fatal("应该收到进度更新")
+	}
+
+	// 验证最终没有错误(因为备用引擎成功了)
+	if strings.Contains(strings.ToLower(lastStatus), "error") {
+		t.Errorf("不应该有错误状态,得到: %s", lastStatus)
+	}
+}
+
+// TestFailoverEngine_ImmediateFailover_Disabled 测试禁用即时重试的情况
+func TestFailoverEngine_ImmediateFailover_Disabled(t *testing.T) {
+	// 创建主引擎(会失败)
+	primary := NewMockEngine("yt-dlp", true, true)
+	primary.SetFailNext(true)
+
+	// 创建备用引擎(会成功)
+	backup := NewMockEngine("lux", true, true)
+
+	config := FailoverConfig{
+		MaxFailures:          10,
+		FailureWindow:        1 * time.Minute,
+		CooldownTime:         100 * time.Millisecond,
+		EnableAutoSwitch:     false,
+		EnableAlert:          false,
+		EnableImmediateRetry: false, // 禁用即时重试
+	}
+
+	fe := NewFailoverEngine(primary, backup, config)
+
+	ctx := context.Background()
+	options := DownloadOptions{
+		OutputDir: "/tmp",
+	}
+
+	progressChan := fe.Download(ctx, "http://test.com/video", options)
+
+	hasError := false
+	for p := range progressChan {
+		if strings.Contains(strings.ToLower(p.Status), "error") {
+			hasError = true
+		}
+	}
+
+	// 验证有错误(因为没有即时重试)
+	if !hasError {
+		t.Error("禁用即时重试时应该收到错误")
+	}
+}
+
+// TestFailoverEngine_ImmediateFailover_BackupUnavailable 测试备用引擎不可用的情况
+func TestFailoverEngine_ImmediateFailover_BackupUnavailable(t *testing.T) {
+	// 创建主引擎(会失败)
+	primary := NewMockEngine("yt-dlp", true, true)
+	primary.SetFailNext(true)
+
+	// 创建备用引擎(不可用)
+	backup := NewMockEngine("lux", true, false)
+
+	config := FailoverConfig{
+		MaxFailures:          10,
+		FailureWindow:        1 * time.Minute,
+		CooldownTime:         100 * time.Millisecond,
+		EnableAutoSwitch:     false,
+		EnableAlert:          false,
+		EnableImmediateRetry: true,
+	}
+
+	fe := NewFailoverEngine(primary, backup, config)
+
+	ctx := context.Background()
+	options := DownloadOptions{
+		OutputDir: "/tmp",
+	}
+
+	progressChan := fe.Download(ctx, "http://test.com/video", options)
+
+	hasError := false
+	for p := range progressChan {
+		if strings.Contains(strings.ToLower(p.Status), "error") {
+			hasError = true
+		}
+	}
+
+	// 验证有错误(因为备用引擎不可用)
+	if !hasError {
+		t.Error("备用引擎不可用时应该收到错误")
+	}
+}
+
+// TestFailoverEngine_ImmediateFailover_BackupCannotHandle 测试备用引擎无法处理 URL 的情况
+func TestFailoverEngine_ImmediateFailover_BackupCannotHandle(t *testing.T) {
+	// 创建主引擎(会失败,但可以处理 URL)
+	primary := NewMockEngine("yt-dlp", true, true)
+	primary.SetFailNext(true)
+
+	// 创建备用引擎(可以成功,但不能处理该 URL)
+	backup := NewMockEngine("lux", false, true)
+
+	config := FailoverConfig{
+		MaxFailures:          10,
+		FailureWindow:        1 * time.Minute,
+		CooldownTime:         100 * time.Millisecond,
+		EnableAutoSwitch:     false,
+		EnableAlert:          false,
+		EnableImmediateRetry: true,
+	}
+
+	fe := NewFailoverEngine(primary, backup, config)
+
+	ctx := context.Background()
+	options := DownloadOptions{
+		OutputDir: "/tmp",
+	}
+
+	progressChan := fe.Download(ctx, "http://test.com/video", options)
+
+	hasError := false
+	for p := range progressChan {
+		if strings.Contains(strings.ToLower(p.Status), "error") {
+			hasError = true
+		}
+	}
+
+	// 验证有错误(因为备用引擎无法处理该 URL)
+	if !hasError {
+		t.Error("备用引擎无法处理 URL 时应该收到错误")
+	}
+}
+
+// TestFailoverEngine_GetPreferredEngineForURL 测试根据 URL 获取推荐引擎
+func TestFailoverEngine_GetPreferredEngineForURL(t *testing.T) {
+	primary := NewMockEngine("yt-dlp", true, true)
+	backup := NewMockEngine("lux", true, true)
+
+	config := DefaultFailoverConfig()
+	fe := NewFailoverEngine(primary, backup, config)
+
+	tests := []struct {
+		name            string
+		url             string
+		expectedEngine  string
+	}{
+		{
+			name:           "Bilibili URL 应该推荐 lux",
+			url:            "https://www.bilibili.com/video/BV1xx411c7BF",
+			expectedEngine: "lux",
+		},
+		{
+			name:           "爱奇艺 URL 应该推荐 lux",
+			url:            "https://www.iqiyi.com/v_123456.html",
+			expectedEngine: "lux",
+		},
+		{
+			name:           "YouTube URL 应该推荐当前引擎",
+			url:            "https://www.youtube.com/watch?v=xxxxx",
+			expectedEngine: "yt-dlp",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			engine := fe.GetPreferredEngineForURL(test.url)
+			if engine == nil {
+				t.Errorf("URL %s 应该返回推荐引擎", test.url)
+				return
+			}
+			if engine.Name() != test.expectedEngine {
+				t.Errorf("URL %s 期望引擎为 %s, 得到 %s", test.url, test.expectedEngine, engine.Name())
+			}
+		})
+	}
+}
+
+// TestFailoverEngine_ImmediateFailover_AlertCallback 测试即时故障转移的告警回调
+func TestFailoverEngine_ImmediateFailover_AlertCallback(t *testing.T) {
+	primary := NewMockEngine("yt-dlp", true, true)
+	primary.SetFailNext(true)
+
+	backup := NewMockEngine("lux", true, true)
+
+	config := FailoverConfig{
+		MaxFailures:          10,
+		FailureWindow:        1 * time.Minute,
+		CooldownTime:         100 * time.Millisecond,
+		EnableAutoSwitch:     false,
+		EnableAlert:          true,
+		EnableImmediateRetry: true,
+	}
+
+	fe := NewFailoverEngine(primary, backup, config)
+
+	alertReceived := false
+	var alertType string
+	var alertMessage string
+
+	fe.SetAlertCallback(func(atype, message string) {
+		alertReceived = true
+		alertType = atype
+		alertMessage = message
+	})
+
+	ctx := context.Background()
+	options := DownloadOptions{
+		OutputDir: "/tmp",
+	}
+
+	progressChan := fe.Download(ctx, "http://test.com/video", options)
+
+	// 消费所有进度
+	for range progressChan {
+	}
+
+	// 验证收到了即时重试告警
+	if !alertReceived {
+		t.Fatal("应该收到告警")
+	}
+
+	if alertType != "immediate_retry" {
+		t.Errorf("期望告警类型为 immediate_retry, 得到 %s", alertType)
+	}
+
+	if !strings.Contains(alertMessage, "立即尝试备用引擎") {
+		t.Errorf("告警消息应包含'立即尝试备用引擎', 得到: %s", alertMessage)
+	}
+}
+
+// TestFailoverEngine_SmartEngineSelection_Bilibili 测试 Bilibili URL 智能选择 lux
+func TestFailoverEngine_SmartEngineSelection_Bilibili(t *testing.T) {
+	// 主引擎 yt-dlp(会失败)
+	primary := NewMockEngine("yt-dlp", true, true)
+	primary.SetFailNext(true)
+
+	// 备用引擎 lux(会成功)
+	backup := NewMockEngine("lux", true, true)
+	backup.SetFailNext(false)
+
+	config := FailoverConfig{
+		MaxFailures:          10,
+		FailureWindow:        1 * time.Minute,
+		CooldownTime:         100 * time.Millisecond,
+		EnableAutoSwitch:     false,
+		EnableAlert:          false,
+		EnableImmediateRetry: true,
+	}
+
+	fe := NewFailoverEngine(primary, backup, config)
+
+	ctx := context.Background()
+	options := DownloadOptions{
+		OutputDir: "/tmp",
+	}
+
+	// 测试 Bilibili URL
+	bilibiliURL := "https://www.bilibili.com/video/BV1xx411c7BF"
+	progressChan := fe.Download(ctx, bilibiliURL, options)
+
+	hasError := false
+	receivedProgress := false
+	for p := range progressChan {
+		receivedProgress = true
+		if strings.Contains(strings.ToLower(p.Status), "error") {
+			hasError = true
+		}
+	}
+
+	if !receivedProgress {
+		t.Fatal("应该收到进度更新")
+	}
+
+	// Bilibili URL 应该优先使用 lux,lux 成功了所以不应该有错误
+	if hasError {
+		t.Error("Bilibili URL 应该通过 lux 引擎成功下载,不应有错误")
+	}
+}
+
+// TestFailoverEngine_SmartEngineSelection_YouTube 测试 YouTube URL 使用默认引擎
+func TestFailoverEngine_SmartEngineSelection_YouTube(t *testing.T) {
+	// 主引擎 yt-dlp(会成功)
+	primary := NewMockEngine("yt-dlp", true, true)
+	primary.SetFailNext(false)
+
+	// 备用引擎 lux(会失败)
+	backup := NewMockEngine("lux", true, true)
+	backup.SetFailNext(true)
+
+	config := FailoverConfig{
+		MaxFailures:          10,
+		FailureWindow:        1 * time.Minute,
+		CooldownTime:         100 * time.Millisecond,
+		EnableAutoSwitch:     false,
+		EnableAlert:          false,
+		EnableImmediateRetry: true,
+	}
+
+	fe := NewFailoverEngine(primary, backup, config)
+
+	ctx := context.Background()
+	options := DownloadOptions{
+		OutputDir: "/tmp",
+	}
+
+	// 测试 YouTube URL(应该使用默认的 yt-dlp)
+	youtubeURL := "https://www.youtube.com/watch?v=xxxxx"
+	progressChan := fe.Download(ctx, youtubeURL, options)
+
+	hasError := false
+	receivedProgress := false
+	for p := range progressChan {
+		receivedProgress = true
+		if strings.Contains(strings.ToLower(p.Status), "error") {
+			hasError = true
+		}
+	}
+
+	if !receivedProgress {
+		t.Fatal("应该收到进度更新")
+	}
+
+	// YouTube URL 应该使用 yt-dlp(当前引擎),yt-dlp 成功了所以不应该有错误
+	if hasError {
+		t.Error("YouTube URL 应该通过 yt-dlp 引擎成功下载,不应有错误")
 	}
 }

@@ -11,19 +11,21 @@ echo JWT 密钥生成工具
 echo ============================================
 echo.
 
-REM 检查 Go 环境
-go version >nul 2>&1
-if %errorlevel% neq 0 (
-    echo [错误] 未检测到 Go 环境，请先安装 Go: https://go.dev/dl/
-    pause
-    exit /b 1
+REM 获取当前脚本所在目录（即程序所在目录）
+set SCRIPT_DIR=%~dp0
+
+REM 检查是否有 keygen.exe
+if not exist "%SCRIPT_DIR%keygen.exe" (
+  echo [错误] 未找到 keygen.exe，请确保该文件与脚本在同一目录
+  pause
+  exit /b 1
 )
 
-REM 进入项目目录
-cd /d "%~dp0.."
+REM 进入脚本所在目录
+cd /d "%SCRIPT_DIR%"
 
 echo 正在生成密钥对...
-go run cmd/keygen/main.go -o keys -s 2048
+keygen.exe -o keys -s 2048
 
 if %errorlevel% neq 0 (
     echo [错误] 密钥生成失败！

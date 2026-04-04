@@ -12,21 +12,23 @@ import (
 
 // FailoverConfig 故障转移配置
 type FailoverConfig struct {
-	MaxFailures      int           // 最大失败次数阈值
-	FailureWindow    time.Duration // 失败时间窗口
-	CooldownTime     time.Duration // 冷却时间
-	EnableAutoSwitch bool          // 是否启用自动切换
-	EnableAlert      bool          // 是否启用告警
+	MaxFailures          int           // 最大失败次数阈值
+	FailureWindow        time.Duration // 失败时间窗口
+	CooldownTime         time.Duration // 冷却时间
+	EnableAutoSwitch     bool          // 是否启用全局引擎切换
+	EnableAlert          bool          // 是否启用告警
+	EnableImmediateRetry bool          // 是否启用即时重试(单次任务失败立即尝试备用引擎)
 }
 
 // DefaultFailoverConfig 默认故障转移配置
 func DefaultFailoverConfig() FailoverConfig {
 	return FailoverConfig{
-		MaxFailures:      3,               // 连续失败 3 次触发切换
-		FailureWindow:    5 * time.Minute, // 5 分钟内的失败计数
-		CooldownTime:     1 * time.Minute, // 冷却 1 分钟
-		EnableAutoSwitch: true,            // 默认启用自动切换
-		EnableAlert:      true,            // 默认启用告警
+		MaxFailures:          3,               // 连续失败 3 次触发全局切换
+		FailureWindow:        5 * time.Minute, // 5 分钟内的失败计数
+		CooldownTime:         1 * time.Minute, // 冷却 1 分钟
+		EnableAutoSwitch:     true,            // 默认启用全局自动切换
+		EnableAlert:          true,            // 默认启用告警
+		EnableImmediateRetry: true,            // 默认启用即时重试(任务级故障转移)
 	}
 }
 
@@ -372,8 +374,8 @@ func (fe *FailoverEngine) Download(ctx context.Context, url string, options Down
 	go func() {
 		defer close(progressChan)
 
-		// 尝试使用当前引擎下载
-		engine := fe.CurrentEngine()
+		// 根据 URL 智能选择引擎(针对特定站点优化)
+		engine := fe.GetPreferredEngineForURL(url)
 		if engine == nil {
 			select {
 			case progressChan <- DownloadProgress{
@@ -384,53 +386,71 @@ func (fe *FailoverEngine) Download(ctx context.Context, url string, options Down
 			return
 		}
 
-		// 执行下载
-		resultChan := engine.Download(ctx, url, options)
+		// 执行下载并检查结果
+		downloadSuccess := fe.downloadWithEngine(ctx, url, options, engine, progressChan)
 
-		var lastProgress DownloadProgress
-		hasError := false
-
-		for p := range resultChan {
-			lastProgress = p
-			if p.Status != "" {
-				select {
-				case progressChan <- p:
-				default:
-				}
+		// 如果下载失败且启用了即时重试,尝试使用备用引擎
+		if !downloadSuccess && fe.config.EnableImmediateRetry {
+			backupEngine := fe.getBackupEngineIfAvailable(url)
+			if backupEngine != nil && backupEngine != engine {
+				fe.sendAlert("immediate_retry", fmt.Sprintf("任务失败,立即尝试备用引擎: %s -> %s", engine.Name(), backupEngine.Name()))
+				fe.downloadWithEngine(ctx, url, options, backupEngine, progressChan)
 			}
-
-			// 检查状态中是否包含错误标识
-			if p.Status != "" && strings.Contains(strings.ToLower(p.Status), "error") {
-				hasError = true
-			}
-		}
-
-		// 处理结果
-		if hasError {
-			// 记录失败（会自动触发切换逻辑）
-			fe.recordFailure(url, fmt.Errorf("下载失败：%s", lastProgress.Status), engine.Name())
-
-			// 如果已切换到备用引擎，使用备用引擎重新下载
-			if fe.config.EnableAutoSwitch && fe.IsSwitched() {
-				backupEngine := fe.CurrentEngine()
-				if backupEngine != nil && backupEngine != engine {
-					// 重新执行下载
-					resultChan := backupEngine.Download(ctx, url, options)
-					for p := range resultChan {
-						select {
-						case progressChan <- p:
-						default:
-						}
-					}
-				}
-			}
-		} else {
-			// 记录成功
-			fe.recordSuccess(engine.Name())
 		}
 	}()
 
 	return progressChan
+}
+
+// downloadWithEngine 使用指定引擎执行下载,返回是否成功
+func (fe *FailoverEngine) downloadWithEngine(ctx context.Context, url string, options DownloadOptions, engine Engine, progressChan chan DownloadProgress) bool {
+	resultChan := engine.Download(ctx, url, options)
+
+	var lastProgress DownloadProgress
+	hasError := false
+
+	for p := range resultChan {
+		lastProgress = p
+		if p.Status != "" {
+			select {
+			case progressChan <- p:
+			default:
+			}
+		}
+
+		// 检查状态中是否包含错误标识
+		if p.Status != "" && strings.Contains(strings.ToLower(p.Status), "error") {
+			hasError = true
+		}
+	}
+
+	// 处理结果
+	if hasError {
+		// 记录失败（会自动触发全局切换逻辑）
+		fe.recordFailure(url, fmt.Errorf("下载失败：%s", lastProgress.Status), engine.Name())
+		return false
+	} else {
+		// 记录成功
+		fe.recordSuccess(engine.Name())
+		return true
+	}
+}
+
+// getBackupEngineIfAvailable 获取备用引擎(如果可用且能处理该URL)
+func (fe *FailoverEngine) getBackupEngineIfAvailable(url string) Engine {
+	fe.mu.RLock()
+	defer fe.mu.RUnlock()
+
+	if fe.backup == nil {
+		return nil
+	}
+
+	// 检查备用引擎是否能处理该URL
+	if fe.backup.CanHandle(url) && fe.backup.IsAvailable() {
+		return fe.backup
+	}
+
+	return nil
 }
 
 // Name 返回引擎名称
@@ -464,6 +484,38 @@ func (fe *FailoverEngine) CanHandle(url string) bool {
 		return fe.currentEngine.CanHandle(url)
 	}
 	return false
+}
+
+// GetPreferredEngineForURL 根据 URL 获取推荐的引擎(针对特定站点优化)
+// 返回推荐的引擎,如果没有特别推荐则返回 nil
+func (fe *FailoverEngine) GetPreferredEngineForURL(url string) Engine {
+	fe.mu.RLock()
+	defer fe.mu.RUnlock()
+
+	urlLower := strings.ToLower(url)
+
+	// 针对已知 lux 表现更好的站点,优先推荐 lux
+	luxPreferredDomains := []string{
+		"bilibili.com",
+		"b23.tv",
+		"iqiyi.com",
+		"youku.com",
+		"mgtv.com",
+	}
+
+	// 检查 URL 是否匹配 lux 优先的站点
+	for _, domain := range luxPreferredDomains {
+		if strings.Contains(urlLower, domain) {
+			// 如果备用引擎是 lux 且可用,推荐 lux
+			if fe.backup != nil && fe.backup.Name() == "lux" && fe.backup.IsAvailable() {
+				return fe.backup
+			}
+			break
+		}
+	}
+
+	// 默认返回当前引擎
+	return fe.currentEngine
 }
 
 // GetVersion 获取引擎版本

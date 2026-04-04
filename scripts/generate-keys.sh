@@ -17,19 +17,20 @@ echo -e "${GREEN}JWT 密钥生成工具${NC}"
 echo -e "${GREEN}============================================${NC}"
 echo ""
 
-# 检查 Go 环境
-if ! command -v go &> /dev/null; then
-    echo -e "${RED}[错误] 未检测到 Go 环境，请先安装 Go${NC}"
-    echo "Ubuntu/Debian: sudo apt-get install golang-go"
-    echo "CentOS/RHEL: sudo yum install golang"
-    exit 1
+# 获取脚本所在目录
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# 检查是否有 keygen 可执行文件
+if [ ! -f "$SCRIPT_DIR/keygen" ]; then
+  echo -e "${RED}[错误] 未找到 keygen 可执行文件，请确保该文件与脚本在同一目录${NC}"
+  exit 1
 fi
 
-# 进入项目目录
-cd "$(dirname "$0")/.."
+# 进入脚本所在目录
+cd "$SCRIPT_DIR"
 
 echo "正在生成密钥对..."
-go run cmd/keygen/main.go -o keys -s 2048
+./keygen -o keys -s 2048
 
 if [ $? -ne 0 ]; then
     echo -e "${RED}[错误] 密钥生成失败！${NC}"

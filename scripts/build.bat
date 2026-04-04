@@ -1,14 +1,14 @@
 @echo off
 chcp 936 >nul
 REM ============================================
-REM Windows ±àÒë½Å±¾ - Ð£Ô°×ÊÔ´²É¼¯ÏµÍ³
-REM ÐèÒª°²×° TDM-GCC »ò MinGW À´Ö§³Ö CGO
-REM ÐèÒª°²×° Node.js À´¹¹½¨Ç°¶Ë×ÊÔ´
+REM Windows ï¿½ï¿½ï¿½ï¿½Å±ï¿½ - Ð£Ô°ï¿½ï¿½Ô´ï¿½É¼ï¿½ÏµÍ³
+REM ï¿½ï¿½Òªï¿½ï¿½×° TDM-GCC ï¿½ï¿½ MinGW ï¿½ï¿½Ö§ï¿½ï¿½ CGO
+REM ï¿½ï¿½Òªï¿½ï¿½×° Node.js ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ç°ï¿½ï¿½ï¿½ï¿½Ô´
 REM ============================================
 
 setlocal enabledelayedexpansion
 
-REM ÉèÖÃ±äÁ¿
+REM ï¿½ï¿½ï¿½Ã±ï¿½ï¿½ï¿½
 set PROJECT_NAME=collector
 set OUTPUT_DIR=bin
 set RELEASE_DIR=release
@@ -16,129 +16,140 @@ set MAIN_PATH=cmd/server/main.go
 set BUILD_TIME=%DATE% %TIME%
 set VERSION=1.0.0
 
-REM »ñÈ¡½Å±¾ËùÔÚÄ¿Â¼µÄ¾ø¶ÔÂ·¾¶ (scripts Ä¿Â¼)
+REM ï¿½ï¿½È¡ï¿½Å±ï¿½ï¿½ï¿½ï¿½ï¿½Ä¿Â¼ï¿½Ä¾ï¿½ï¿½ï¿½Â·ï¿½ï¿½ (scripts Ä¿Â¼)
 set SCRIPT_DIR=%~dp0
-REM ¼ÆËãÏîÄ¿¸ùÄ¿Â¼ (È¥µôÄ©Î²µÄ 'scripts\' ²¿·Ö£¬±£ÁôÄ©Î²·´Ð±¸Ü)
+REM ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ä¿ï¿½ï¿½Ä¿Â¼ (È¥ï¿½ï¿½Ä©Î²ï¿½ï¿½ 'scripts\' ï¿½ï¿½ï¿½Ö£ï¿½ï¿½ï¿½ï¿½ï¿½Ä©Î²ï¿½ï¿½Ð±ï¿½ï¿½)
 set PROJECT_ROOT=%SCRIPT_DIR:~0,-9%
 
-REM ¼ì²é Go »·¾³
-echo ^[1/6^] ¼ì²é Go »·¾³...
+REM ï¿½ï¿½ï¿½ Go ï¿½ï¿½ï¿½ï¿½
+echo ^[1/6^] ï¿½ï¿½ï¿½ Go ï¿½ï¿½ï¿½ï¿½...
 go version >nul 2>&1
 if %errorlevel% neq 0 (
-    echo ^[´íÎó^] Î´¼ì²âµ½ Go »·¾³£¬ÇëÏÈ°²×° Go: https://go.dev/dl/
+    echo ^[ï¿½ï¿½ï¿½ï¿½^] Î´ï¿½ï¿½âµ½ Go ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½È°ï¿½×° Go: https://go.dev/dl/
     pause
     exit /b 1
 )
 go version
 
-REM ¼ì²é GCC »·¾³ (CGO ÐèÒª)
-echo ^[2/6^] ¼ì²é GCC »·¾³...
+REM ï¿½ï¿½ï¿½ GCC ï¿½ï¿½ï¿½ï¿½ (CGO ï¿½ï¿½Òª)
+echo ^[2/6^] ï¿½ï¿½ï¿½ GCC ï¿½ï¿½ï¿½ï¿½...
 where gcc >nul 2>&1
 if %errorlevel% neq 0 (
-    echo ^[´íÎó^] Î´¼ì²âµ½ GCC »·¾³£¬Çë°²×° TDM-GCC »ò MinGW
-    echo ÏÂÔØµØÖ·£ºhttps://jmeubank.github.io/tdm-gcc/
+    echo ^[ï¿½ï¿½ï¿½ï¿½^] Î´ï¿½ï¿½âµ½ GCC ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ë°²×° TDM-GCC ï¿½ï¿½ MinGW
+    echo ï¿½ï¿½ï¿½Øµï¿½Ö·ï¿½ï¿½https://jmeubank.github.io/tdm-gcc/
     pause
     exit /b 1
 )
 gcc --version | findstr /C:"gcc"
-echo GCC »·¾³¼ì²éÍ¨¹ý
+echo GCC ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Í¨ï¿½ï¿½
 
-REM ¼ì²é Node.js »·¾³
-echo ^[3/6^] ¼ì²é Node.js »·¾³...
+REM ï¿½ï¿½ï¿½ Node.js ï¿½ï¿½ï¿½ï¿½
+echo ^[3/6^] ï¿½ï¿½ï¿½ Node.js ï¿½ï¿½ï¿½ï¿½...
 where node >nul 2>&1
 if %errorlevel% neq 0 (
-    echo ^[¾¯¸æ^] Î´¼ì²âµ½ Node.js »·¾³
-    echo Èç¹ûÇ°¶Ë×ÊÔ´ÒÑ¹¹½¨£¬¿ÉÌø¹ý´Ë²½Öè
-    echo ÏÂÔØµØÖ·£ºhttps://nodejs.org/
+    echo ^[ï¿½ï¿½ï¿½ï¿½^] Î´ï¿½ï¿½âµ½ Node.js ï¿½ï¿½ï¿½ï¿½
+    echo ï¿½ï¿½ï¿½Ç°ï¿½ï¿½ï¿½ï¿½Ô´ï¿½Ñ¹ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ë²ï¿½ï¿½ï¿½
+    echo ï¿½ï¿½ï¿½Øµï¿½Ö·ï¿½ï¿½https://nodejs.org/
 ) else (
     node --version
-    echo Node.js »·¾³¼ì²éÍ¨¹ý
+    echo Node.js ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Í¨ï¿½ï¿½
 )
 
-REM ´´½¨Êä³öÄ¿Â¼
-echo ^[4/6^] ´´½¨Êä³öÄ¿Â¼...
+REM ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ä¿Â¼
+echo ^[4/6^] ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ä¿Â¼...
 if not exist "%PROJECT_ROOT%\%OUTPUT_DIR%" (
   mkdir "%PROJECT_ROOT%\%OUTPUT_DIR%"
-  echo ÒÑ´´½¨Ä¿Â¼£º%PROJECT_ROOT%\%OUTPUT_DIR%
+  echo ï¿½Ñ´ï¿½ï¿½ï¿½Ä¿Â¼ï¿½ï¿½%PROJECT_ROOT%\%OUTPUT_DIR%
 )
 if not exist "%PROJECT_ROOT%\%RELEASE_DIR%" (
   mkdir "%PROJECT_ROOT%\%RELEASE_DIR%"
-  echo ÒÑ´´½¨Ä¿Â¼£º%PROJECT_ROOT%\%RELEASE_DIR%
+  echo ï¿½Ñ´ï¿½ï¿½ï¿½Ä¿Â¼ï¿½ï¿½%PROJECT_ROOT%\%RELEASE_DIR%
 )
 
-REM ¹¹½¨Ç°¶Ë×ÊÔ´
-echo ^[5/6^] ¹¹½¨Ç°¶Ë×ÊÔ´...
+REM ï¿½ï¿½ï¿½ï¿½Ç°ï¿½ï¿½ï¿½ï¿½Ô´
+echo ^[5/6^] ï¿½ï¿½ï¿½ï¿½Ç°ï¿½ï¿½ï¿½ï¿½Ô´...
 pushd "%PROJECT_ROOT%\web"
 if exist "node_modules" (
-  echo ¼ì²âµ½ node_modules£¬Ö´ÐÐ npm build...
+  echo ï¿½ï¿½âµ½ node_modulesï¿½ï¿½Ö´ï¿½ï¿½ npm build...
   call npm run build
   if %errorlevel% neq 0 (
-    echo ^[´íÎó^] Ç°¶Ë¹¹½¨Ê§°Ü£¡
+    echo ^[ï¿½ï¿½ï¿½ï¿½^] Ç°ï¿½Ë¹ï¿½ï¿½ï¿½Ê§ï¿½Ü£ï¿½
     popd
     pause
     exit /b 1
   )
 ) else (
-  echo Î´¼ì²âµ½ node_modules£¬ÏÈÖ´ÐÐ npm install...
+  echo Î´ï¿½ï¿½âµ½ node_modulesï¿½ï¿½ï¿½ï¿½Ö´ï¿½ï¿½ npm install...
   call npm install
   if %errorlevel% neq 0 (
-    echo ^[´íÎó^] npm install Ê§°Ü£¡
+    echo ^[ï¿½ï¿½ï¿½ï¿½^] npm install Ê§ï¿½Ü£ï¿½
     popd
     pause
     exit /b 1
   )
   call npm run build
   if %errorlevel% neq 0 (
-    echo ^[´íÎó^] Ç°¶Ë¹¹½¨Ê§°Ü£¡
+    echo ^[ï¿½ï¿½ï¿½ï¿½^] Ç°ï¿½Ë¹ï¿½ï¿½ï¿½Ê§ï¿½Ü£ï¿½
     popd
     pause
     exit /b 1
   )
 )
 popd
-echo Ç°¶Ë¹¹½¨Íê³É
+echo Ç°ï¿½Ë¹ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 
-REM ¼ì²é web/dist ÊÇ·ñ´æÔÚ
+REM ï¿½ï¿½ï¿½ web/dist ï¿½Ç·ï¿½ï¿½ï¿½ï¿½
 if not exist "%PROJECT_ROOT%\web\dist" (
-  echo ^[´íÎó^] Ç°¶Ë¹¹½¨²úÎïÄ¿Â¼ web\dist ²»´æÔÚ£¡
-  echo Çë¼ì²éÇ°¶Ë¹¹½¨ÊÇ·ñ³É¹¦
+  echo ^[ï¿½ï¿½ï¿½ï¿½^] Ç°ï¿½Ë¹ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ä¿Â¼ web\dist ï¿½ï¿½ï¿½ï¿½ï¿½Ú£ï¿½
+  echo ï¿½ï¿½ï¿½ï¿½Ç°ï¿½Ë¹ï¿½ï¿½ï¿½ï¿½Ç·ï¿½É¹ï¿½
   pause
   exit /b 1
 )
 
-REM ±àÒëÏîÄ¿
-echo ^[6/6^] ¿ªÊ¼±àÒë Windows °æ±¾ (CGO ÆôÓÃ)...
-REM ÉèÖÃ»·¾³±äÁ¿
+REM ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ä¿
+echo ^[6/6^] ï¿½ï¿½Ê¼ï¿½ï¿½ï¿½ï¿½ Windows ï¿½æ±¾ (CGO ï¿½ï¿½ï¿½ï¿½)...
+REM ï¿½ï¿½ï¿½Ã»ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 set CGO_ENABLED=1
 set GOOS=windows
 set GOARCH=amd64
 set CC=gcc
 
-REM ÏÔÊ¾±àÒëÐÅÏ¢
+REM ï¿½ï¿½Ê¾ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ï¢
 echo Go Version:
 go version
 echo GCC Path:
 where gcc
-echo ¿ªÊ¼±àÒë...
+echo ï¿½ï¿½Ê¼ï¿½ï¿½ï¿½ï¿½...
 
 go build -ldflags="-s -w -X 'main.buildTime=%BUILD_TIME%'" -o "%PROJECT_ROOT%\%OUTPUT_DIR%\%PROJECT_NAME%.exe" "%PROJECT_ROOT%\%MAIN_PATH%"
 
 if %errorlevel% neq 0 (
-    echo ^[´íÎó^] ±àÒëÊ§°Ü£¡
-    echo ÇëÈ·±£ÒÑÕýÈ·°²×° TDM-GCC »ò MinGW
+  echo ^[é”™è¯¯] ç¼–è¯‘å¤±è´¥ï¼
+  echo è¯·ç¡®ä¿å·²æ­£ç¡®å®‰è£… TDM-GCC æˆ– MinGW
+  pause
+  exit /b 1
+)
+
+REM ç¼–è¯‘å¯†é’¥ç”Ÿæˆå·¥å…·
+echo ^[ç¼–è¯‘å¯†é’¥ç”Ÿæˆå·¥å…·^]...
+go build -o "%PROJECT_ROOT%\%OUTPUT_DIR%\keygen.exe" "%PROJECT_ROOT%\cmd\keygen\main.go"
+
+if %errorlevel% neq 0 (
+    echo ^[ï¿½ï¿½ï¿½ï¿½^] ï¿½ï¿½ï¿½ï¿½Ê§ï¿½Ü£ï¿½
+    echo ï¿½ï¿½È·ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½È·ï¿½ï¿½×° TDM-GCC ï¿½ï¿½ MinGW
     pause
     exit /b 1
 )
 
 echo.
 echo ============================================
-echo [³É¹¦] ±àÒëÍê³É£¡
-echo Êä³öÎÄ¼þ£º%PROJECT_ROOT%\%OUTPUT_DIR%\%PROJECT_NAME%.exe
+echo [ï¿½É¹ï¿½] ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½É£ï¿½
+echo ï¿½ï¿½ï¿½ï¿½Ä¼ï¿½ï¿½ï¿½%PROJECT_ROOT%\%OUTPUT_DIR%\%PROJECT_NAME%.exe
 echo ============================================
 
-REM ´ò°ü·¢²¼ÎÄ¼þ
+REM ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ä¼ï¿½
 echo.
-echo ¿ªÊ¼´ò°ü·¢²¼ÎÄ¼þ...
+echo ï¿½ï¿½Ê¼ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ä¼ï¿½...
 set RELEASE_NAME=%PROJECT_NAME%_%VERSION%_windows_amd64
 set RELEASE_PATH=%PROJECT_ROOT%\%RELEASE_DIR%\%RELEASE_NAME%
 
@@ -147,103 +158,120 @@ if exist "%RELEASE_PATH%" (
 )
 mkdir "%RELEASE_PATH%"
 
-REM ¸´ÖÆ±ØÒªÎÄ¼þ
+REM ï¿½ï¿½ï¿½Æ±ï¿½Òªï¿½Ä¼ï¿½
 copy "%PROJECT_ROOT%\%OUTPUT_DIR%\%PROJECT_NAME%.exe" "%RELEASE_PATH%\"
 copy "%PROJECT_ROOT%\config.yaml.example" "%RELEASE_PATH%\config.yaml"
 copy "%PROJECT_ROOT%\README.md" "%RELEASE_PATH%\"
 
-REM ×¢Òâ£ºmigrations Ä¿Â¼ÒÑÇ¶Èëµ½¶þ½øÖÆÎÄ¼þÖÐ£¬²»ÐèÒª¸´ÖÆ
+REM ×¢ï¿½â£ºmigrations Ä¿Â¼ï¿½ï¿½Ç¶ï¿½ëµ½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ä¼ï¿½ï¿½Ð£ï¿½ï¿½ï¿½ï¿½ï¿½Òªï¿½ï¿½ï¿½ï¿½
 
-REM ¸´ÖÆ runtime Ä¿Â¼£¨°üº¬ yt-dlp ºÍ lux£©
+REM ï¿½ï¿½ï¿½ï¿½ runtime Ä¿Â¼ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ yt-dlp ï¿½ï¿½ luxï¿½ï¿½
+REM æ£€æŸ¥ runtime ç›®å½•æ˜¯å¦å­˜åœ¨ä»¥åŠå…³é”®æ–‡ä»¶
 if exist "%PROJECT_ROOT%\runtime" (
-  xcopy /E /I /Y "%PROJECT_ROOT%\runtime" "%RELEASE_PATH%\runtime"
-  echo ÒÑ¸´ÖÆ runtime Ä¿Â¼
+  echo [æ£€æŸ¥ runtime ç›®å½•]...
+  
+  REM æ£€æŸ¥ runtime ç›®å½•æ˜¯å¦ä¸ºç©º
+  set "HAS_FILES=0"
+  for %%f in ("%PROJECT_ROOT%\runtime\*") do set "HAS_FILES=1"
+  if "%HAS_FILES%"=="0" (
+    echo [è­¦å‘Š] runtime ç›®å½•ä¸ºç©ºï¼Œå°†è·³è¿‡å¤åˆ¶
+  ) else (
+    xcopy /E /I /Y "%PROJECT_ROOT%\runtime" "%RELEASE_PATH%\runtime"
+    echo [å·²å¤åˆ¶] runtime ç›®å½•
+  )
+) else (
+  echo [è­¦å‘Š] runtime ç›®å½•ä¸å­˜åœ¨ï¼Œå°†è·³è¿‡å¤åˆ¶å¤–éƒ¨å·¥å…· (yt-dlp, lux)
+  echo å¦‚éœ€ä½¿ç”¨è§†é¢‘ä¸‹è½½åŠŸèƒ½ï¼Œè¯·åˆ›å»º runtime ç›®å½•å¹¶æ”¾å…¥ yt-dlp å’Œ lux å¯æ‰§è¡Œæ–‡ä»¶
 )
 
-REM ´´½¨Ä¿Â¼½á¹¹
+REM ï¿½ï¿½ï¿½ï¿½Ä¿Â¼ï¿½á¹¹
 mkdir "%RELEASE_PATH%\data"
 mkdir "%RELEASE_PATH%\logs"
 mkdir "%RELEASE_PATH%\keys"
 
-REM ¸´ÖÆÃÜÔ¿ÎÄ¼þ£¨Èç¹û´æÔÚ£©
+REM ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ô¿ï¿½Ä¼ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ú£ï¿½
 if exist "%PROJECT_ROOT%\keys\private.pem" (
   copy "%PROJECT_ROOT%\keys\private.pem" "%RELEASE_PATH%\keys\"
-  echo ÒÑ¸´ÖÆË½Ô¿ÎÄ¼þ
+  echo ï¿½Ñ¸ï¿½ï¿½ï¿½Ë½Ô¿ï¿½Ä¼ï¿½
 )
 if exist "%PROJECT_ROOT%\keys\public.pem" (
   copy "%PROJECT_ROOT%\keys\public.pem" "%RELEASE_PATH%\keys\"
-  echo ÒÑ¸´ÖÆ¹«Ô¿ÎÄ¼þ
+  echo ï¿½Ñ¸ï¿½ï¿½Æ¹ï¿½Ô¿ï¿½Ä¼ï¿½
 )
 
-REM ¸´ÖÆÃÜÔ¿Éú³É½Å±¾
+REM ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ô¿ï¿½ï¿½ï¿½É½Å±ï¿½
 copy "%PROJECT_ROOT%\scripts\generate-keys.bat" "%RELEASE_PATH%\"
 
-REM ´´½¨.gitignore ÎÄ¼þ
+REM ï¿½ï¿½ï¿½ï¿½ï¿½Ü¹ï¿½Ô¿ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ (ï¿½ï¿½ï¿½Æµï¿½ release Ä¿Â¼)
+copy "%PROJECT_ROOT%\%OUTPUT_DIR%\keygen.exe" "%RELEASE_PATH%\"
+echo å·²å¤åˆ¶ keygen.exe åˆ° release ç›®å½•
+
+REM ï¿½ï¿½ï¿½ï¿½.gitignore ï¿½Ä¼ï¿½
 (
-echo # ºöÂÔÔËÐÐÊ±Éú³ÉµÄÎÄ¼þ
+echo # ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ê±ï¿½ï¿½ï¿½Éµï¿½ï¿½Ä¼ï¿½
 echo *.db
 echo *.sqlite
 echo *.sqlite3
 echo.
-echo # ºöÂÔÈÕÖ¾ÎÄ¼þ
+echo # ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ö¾ï¿½Ä¼ï¿½
 echo logs/*
 echo ^!logs/.gitkeep
 echo.
-echo # ºöÂÔÊý¾ÝÎÄ¼þ
+echo # ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ä¼ï¿½
 echo data/*
 echo ^!data/.gitkeep
 echo.
-echo # ºöÂÔÏÂÔØÎÄ¼þ
+echo # ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ä¼ï¿½
 echo downloads/*
 echo ^!downloads/.gitkeep
 echo.
-echo # ºöÂÔÃÜÔ¿ÎÄ¼þ£¨ÖØÒª£¡£©
+echo # ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ô¿ï¿½Ä¼ï¿½ï¿½ï¿½ï¿½ï¿½Òªï¿½ï¿½ï¿½ï¿½
 echo keys/private.pem
 echo keys/*.pem
 echo ^!keys/.gitkeep
 echo ^!keys/public.pem
 echo.
-echo # ºöÂÔÅäÖÃÎÄ¼þ
+echo # ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ä¼ï¿½
 echo config.yaml
 ) > "%RELEASE_PATH%\.gitignore"
 
-REM ´´½¨ README ËµÃ÷
+REM ï¿½ï¿½ï¿½ï¿½ README Ëµï¿½ï¿½
 (
-echo # Ð£Ô°×ÊÔ´²É¼¯ÏµÍ³ - ÔËÐÐËµÃ÷
+echo # Ð£Ô°ï¿½ï¿½Ô´ï¿½É¼ï¿½ÏµÍ³ - ï¿½ï¿½ï¿½ï¿½Ëµï¿½ï¿½
 echo.
-echo ## Ê×´ÎÔËÐÐ²½Öè
+echo ## ï¿½×´ï¿½ï¿½ï¿½ï¿½Ð²ï¿½ï¿½ï¿½
 echo.
-echo 1. Éú³É JWT ÃÜÔ¿¶Ô£¨½öÊ×´ÎÔËÐÐÐèÒª£©:
-echo - Windows: ÔËÐÐ generate-keys.bat
-echo - Linux: ÔËÐÐ ./generate-keys.sh
-echo - »òÊÖ¶¯Ö´ÐÐ£ºgo run cmd/keygen/main.go
+echo 1. ï¿½ï¿½ï¿½ï¿½ JWT ï¿½ï¿½Ô¿ï¿½Ô£ï¿½ï¿½ï¿½ï¿½×´ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Òªï¿½ï¿½:
+echo - Windows: Ö±ï¿½Ó°ï¿½ double-click generate-keys.bat
+echo - Linux: ï¿½ï¿½ï¿½ï¿½ ./generate-keys.sh
+echo - ï¿½ï¿½ï¿½Ö¶ï¿½Ö´ï¿½Ð£ï¿½.\\keygen.exe -o keys -s 2048
 echo.
-echo 2. ÅäÖÃÓ¦ÓÃ³ÌÐò:
-echo - ¸´ÖÆ config.yaml.example Îª config.yaml
-echo - ÐÞ¸ÄÅäÖÃÎÄ¼þÖÐµÄÊý¾Ý¿âÂ·¾¶¡¢¶Ë¿ÚµÈÉèÖÃ
+echo 2. ï¿½ï¿½ï¿½ï¿½Ó¦ï¿½Ã³ï¿½ï¿½ï¿½:
+echo - ï¿½ï¿½ï¿½ï¿½ config.yaml.example Îª config.yaml
+echo - ï¿½Þ¸ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ä¼ï¿½ï¿½Ðµï¿½ï¿½ï¿½ï¿½Ý¿ï¿½Â·ï¿½ï¿½ï¿½ï¿½ï¿½Ë¿Úµï¿½ï¿½ï¿½ï¿½ï¿½
 echo.
-echo 3. ÔËÐÐ³ÌÐò:
+echo 3. ï¿½ï¿½ï¿½Ð³ï¿½ï¿½ï¿½:
 echo - Windows: .\collector.exe
 echo - Linux: ./collector
 echo.
-echo ## Ä¿Â¼½á¹¹
-echo - bin/ - ±àÒëºóµÄ¿ÉÖ´ÐÐÎÄ¼þ
-echo - config.yaml - ÅäÖÃÎÄ¼þ
-echo - data/ - Êý¾Ý¿âÎÄ¼þÄ¿Â¼
-echo - keys/ - JWT ÃÜÔ¿ÎÄ¼þÄ¿Â¼
-echo - logs/ - ÈÕÖ¾ÎÄ¼þÄ¿Â¼
-echo - runtime/ - Íâ²¿ÏÂÔØ¹¤¾ß ^(yt-dlp, lux^)
-echo - downloads/ - ÏÂÔØÍê³ÉÎÄ¼þÄ¿Â¼
+echo ## Ä¿Â¼ï¿½á¹¹
+echo - bin/ - ï¿½ï¿½ï¿½ï¿½ï¿½Ä¿ï¿½Ö´ï¿½ï¿½ï¿½Ä¼ï¿½
+echo - config.yaml - ï¿½ï¿½ï¿½ï¿½ï¿½Ä¼ï¿½
+echo - data/ - ï¿½ï¿½ï¿½Ý¿ï¿½ï¿½Ä¼ï¿½Ä¿Â¼
+echo - keys/ - JWT ï¿½ï¿½Ô¿ï¿½Ä¼ï¿½Ä¿Â¼
+echo - logs/ - ï¿½ï¿½Ö¾ï¿½Ä¼ï¿½Ä¿Â¼
+echo - runtime/ - ï¿½â²¿ï¿½ï¿½ï¿½Ø¹ï¿½ï¿½ï¿½ ^(yt-dlp, lux^)
+echo - downloads/ - ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ä¼ï¿½Ä¿Â¼
 echo.
-echo ## ×¢ÒâÊÂÏî
-echo 1. Ë½Ô¿ÎÄ¼þ ^(keys/private.pem^) ÇëÍ×ÉÆ±£¹Ü£¬²»ÒªÐ¹Â¶
-echo 2. ²»Òª½«Ë½Ô¿Ìá½»µ½°æ±¾¿ØÖÆÏµÍ³
-echo 3. Éú²ú»·¾³½¨ÒéÊ¹ÓÃ 4096 Î»ÃÜÔ¿
+echo ## ×¢ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
+echo 1. Ë½Ô¿ï¿½Ä¼ï¿½ ^(keys/private.pem^) ï¿½ï¿½ï¿½ï¿½ï¿½Æ±ï¿½ï¿½Ü£ï¿½ï¿½ï¿½ÒªÐ¹Â¶
+echo 2. ï¿½ï¿½Òªï¿½ï¿½Ë½Ô¿ï¿½á½»ï¿½ï¿½ï¿½æ±¾ï¿½ï¿½ï¿½ï¿½ÏµÍ³
+echo 3. ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ê¹ï¿½ï¿½ 4096 Î»ï¿½ï¿½Ô¿
 ) > "%RELEASE_PATH%\RUNTIME.md"
 
 echo.
 echo ============================================
-echo [³É¹¦] ·¢²¼°üÒÑ´´½¨£¡
-echo ·¢²¼Â·¾¶£º%RELEASE_PATH%
+echo [ï¿½É¹ï¿½] ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ñ´ï¿½ï¿½ï¿½ï¿½ï¿½
+echo ï¿½ï¿½ï¿½ï¿½Â·ï¿½ï¿½ï¿½ï¿½%RELEASE_PATH%
 echo ============================================
 pause

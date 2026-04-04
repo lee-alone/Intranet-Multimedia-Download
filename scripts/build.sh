@@ -80,6 +80,10 @@ echo "开始编译..."
 
 go build -ldflags="-s -w -X 'main.buildTime=$BUILD_TIME'" -o "$OUTPUT_DIR/$PROJECT_NAME" "$MAIN_PATH"
 
+# 编译密钥生成工具
+echo -e "${GREEN}[编译密钥生成工具]...${NC}"
+go build -o "$OUTPUT_DIR/keygen" "cmd/keygen/main.go"
+
 echo ""
 echo -e "${GREEN}============================================${NC}"
 echo -e "${GREEN}[成功] 编译完成！${NC}"
@@ -101,6 +105,28 @@ cp "config.yaml.example" "$RELEASE_PATH/config.yaml"
 cp "README.md" "$RELEASE_PATH/"
 cp -r "migrations" "$RELEASE_PATH/"
 
+# 复制 runtime 目录（如果存在）
+# 检查 runtime 目录是否存在以及关键文件
+if [ -d "runtime" ]; then
+  echo -e "${GREEN}[检查 runtime 目录]...${NC}"
+  RUNTIME_ERROR=0
+  
+  # 检查 runtime 目录是否为空
+  if [ -z "$(ls -A runtime)" ]; then
+    echo -e "${YELLOW}[警告] runtime 目录为空，将跳过复制${NC}"
+    RUNTIME_ERROR=1
+  fi
+  
+  # 如果 runtime 目录有效，则复制
+  if [ "$RUNTIME_ERROR" -eq 0 ]; then
+    cp -r "runtime" "$RELEASE_PATH/"
+    echo -e "${GREEN}[已复制] runtime 目录${NC}"
+  fi
+else
+  echo -e "${YELLOW}[警告] runtime 目录不存在，将跳过复制外部工具 (yt-dlp, lux)${NC}"
+  echo "如需使用视频下载功能，请创建 runtime 目录并放入 yt-dlp 和 lux 可执行文件"
+fi
+
 # 复制密钥文件（如果存在）
 if [ -f "keys/private.pem" ]; then
     cp "keys/private.pem" "$RELEASE_PATH/keys/"
@@ -111,6 +137,10 @@ fi
 
 # 复制密钥生成脚本
 cp "scripts/generate-keys.sh" "$RELEASE_PATH/"
+
+# 复制密钥生成工具 (复制到 release 目录)
+cp "$OUTPUT_DIR/keygen" "$RELEASE_PATH/"
+echo "已复制 keygen 到 release 目录"
 
 # 创建目录结构
 mkdir -p "$RELEASE_PATH/data"
@@ -155,16 +185,16 @@ cat > "$RELEASE_PATH/RUNTIME.md" << 'EOF'
 ## 首次运行步骤
 
 1. 生成 JWT 密钥对（仅首次运行需要）:
-   - Linux: 运行 ./generate-keys.sh
-   - 或手动执行：go run cmd/keygen/main.go
+- Linux: 直接运行 ./generate-keys.sh
+- 或手动执行：./keygen -o keys -s 2048
 
 2. 配置应用程序:
-   - 复制 config.yaml.example 为 config.yaml
-   - 修改配置文件中的数据库路径、端口等设置
+- 复制 config.yaml.example 为 config.yaml
+- 修改配置文件中的数据库路径、端口等设置
 
 3. 运行程序:
-   - Linux: ./collector
-   - Windows: .\collector.exe
+- Linux: ./collector
+- Windows: .\collector.exe
 
 ## 目录结构
 - bin/ - 编译后的可执行文件

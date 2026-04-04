@@ -1,30 +1,30 @@
-# 校园资源采集系统 - 运行说明
+# 校园锟斤拷源锟缴硷拷系统 - 锟斤拷锟斤拷说锟斤拷
 
-## 首次运行步骤
+## 锟阶达拷锟斤拷锟叫诧拷锟斤拷
 
-1. 生成 JWT 密钥对（仅首次运行需要）:
-- Windows: 运行 generate-keys.bat
-- Linux: 运行 ./generate-keys.sh
-- 或手动执行：go run cmd/keygen/main.go
+1. 锟斤拷锟斤拷 JWT 锟斤拷钥锟皆ｏ拷锟斤拷锟阶达拷锟斤拷锟斤拷锟斤拷要锟斤拷:
+- Windows: 直锟接帮拷 double-click generate-keys.bat
+- Linux: 锟斤拷锟斤拷 ./generate-keys.sh
+- 锟斤拷锟街讹拷执锟叫ｏ拷.\\keygen.exe -o keys -s 2048
 
-2. 配置应用程序:
-- 复制 config.yaml.example 为 config.yaml
-- 修改配置文件中的数据库路径、端口等设置
+2. 锟斤拷锟斤拷应锟矫筹拷锟斤拷:
+- 锟斤拷锟斤拷 config.yaml.example 为 config.yaml
+- 锟睫革拷锟斤拷锟斤拷锟侥硷拷锟叫碉拷锟斤拷锟捷匡拷路锟斤拷锟斤拷锟剿口碉拷锟斤拷锟斤拷
 
-3. 运行程序:
+3. 锟斤拷锟叫筹拷锟斤拷:
 - Windows: .\collector.exe
 - Linux: ./collector
 
-## 目录结构
-- bin/ - 编译后的可执行文件
-- config.yaml - 配置文件
-- data/ - 数据库文件目录
-- keys/ - JWT 密钥文件目录
-- logs/ - 日志文件目录
-- runtime/ - 外部下载工具 (yt-dlp, lux)
-- downloads/ - 下载完成文件目录
+## 目录锟结构
+- bin/ - 锟斤拷锟斤拷锟侥匡拷执锟斤拷锟侥硷拷
+- config.yaml - 锟斤拷锟斤拷锟侥硷拷
+- data/ - 锟斤拷锟捷匡拷锟侥硷拷目录
+- keys/ - JWT 锟斤拷钥锟侥硷拷目录
+- logs/ - 锟斤拷志锟侥硷拷目录
+- runtime/ - 锟解部锟斤拷锟截癸拷锟斤拷 (yt-dlp, lux)
+- downloads/ - 锟斤拷锟斤拷锟斤拷锟斤拷募锟侥柯?
 
-## 注意事项
-1. 私钥文件 (keys/private.pem) 请妥善保管，不要泄露
-2. 不要将私钥提交到版本控制系统
-3. 生产环境建议使用 4096 位密钥
+## 注锟斤拷锟斤拷锟斤拷
+1. 私钥锟侥硷拷 (keys/private.pem) 锟斤拷锟斤拷锟狡憋拷锟杰ｏ拷锟斤拷要泄露
+2. 锟斤拷要锟斤拷私钥锟结交锟斤拷锟芥本锟斤拷锟斤拷系统
+3. 锟斤拷锟斤拷锟斤拷锟斤拷锟斤拷锟斤拷使锟斤拷 4096 位锟斤拷钥
