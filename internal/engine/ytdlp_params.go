@@ -209,12 +209,9 @@ func buildAuthArgs(url string, options DownloadOptions) []string {
 			}
 		}
 
-		// YouTube 提取器参数：认证模式下解锁更多格式选项
-		if isYT {
-			// 使用多个客户端来获取更多格式选项
-			// WEB + ANDROID 客户端组合可以获取更完整的格式列表
-			args = append(args, "--extractor-args", "youtube:player-client=WEB,ANDROID")
-		}
+		// YouTube 提取器参数：不再指定 player-client
+		// 让 yt-dlp 自动选择最佳客户端，避免 Cookie 与客户端类型不匹配导致反爬虫
+		// 注意：当前代码已对 YouTube 禁用 Cookie，此分支不会执行
 	}
 
 	return args
