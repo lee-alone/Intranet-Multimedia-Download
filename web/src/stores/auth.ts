@@ -176,7 +176,7 @@ export const useAuthStore = defineStore('auth', () => {
   async function logout(): Promise<void> {
     try {
       await post('/logout')
-    } catch (e) {
+    } catch (_e) {
       // 忽略登出错误
     } finally {
       clearAuth()
@@ -233,7 +233,7 @@ export const useAuthStore = defineStore('auth', () => {
         return true
       }
       return false
-    } catch (e) {
+    } catch (_e) {
       clearAuth()
       return false
     }

@@ -39,7 +39,7 @@ export default defineConfig({
         // 资源文件命名
         assetFileNames: (assetInfo) => {
           const info = assetInfo.name?.split('.') ?? []
-          const extType = info[info.length - 1]
+          const _extType = info[info.length - 1]
           if (assetInfo.name && /\.(woff|woff2|eot|ttf|otf)$/.test(assetInfo.name)) {
             return 'fonts/[name][extname]'
           }

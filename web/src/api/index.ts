@@ -70,7 +70,7 @@ api.interceptors.response.use(
       const backendMessage = error.response.data?.message || ''
 
       switch (status) {
-      case 401:
+      case 401: {
         // 未授权，清除所有 token
         const oldToken = localStorage.getItem('token')
         // 只在有旧 token 时才清除并跳转
@@ -85,26 +85,30 @@ api.interceptors.response.use(
           }
         }
         break
-      case 403:
+      }
+      case 403: {
         // 禁止访问（如 MFA 验证失败）
         const forbiddenMsg = getErrorMessage(backendMessage || '禁止访问')
         if (window.toast) {
           window.toast.error(forbiddenMsg)
         }
         break
-      case 500:
+      }
+      case 500: {
         // 服务器错误
         const serverErrorMsg = getErrorMessage(backendMessage || '服务器内部错误')
         if (window.toast) {
           window.toast.error(serverErrorMsg)
         }
         break
-      default:
+      }
+      default: {
         // 其他错误使用 errorMap 映射
         const defaultMsg = getErrorMessage(backendMessage || status.toString())
         if (window.toast) {
           window.toast.error(defaultMsg)
         }
+      }
       }
     } else if (error.code) {
       // 网络错误
