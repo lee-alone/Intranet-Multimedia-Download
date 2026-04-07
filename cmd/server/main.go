@@ -50,8 +50,16 @@ func main() {
 	// 初始化默认管理员账号
 	adminCfg := cfg.Auth.DefaultAdmin
 	if adminCfg.Enabled {
-		if err := auth.InitDefaultAdmin(db, adminCfg.Username, adminCfg.Password, adminCfg.Email); err != nil {
+		if err := auth.InitUser(db, adminCfg.Username, adminCfg.Password, adminCfg.Email, "admin"); err != nil {
 			log.Printf("警告：创建默认管理员账号失败：%v", err)
+		}
+	}
+
+	// 初始化默认测试账号
+	userCfg := cfg.Auth.DefaultUser
+	if userCfg.Enabled {
+		if err := auth.InitUser(db, userCfg.Username, userCfg.Password, userCfg.Email, "user"); err != nil {
+			log.Printf("警告：创建默认测试账号失败：%v", err)
 		}
 	}
 

@@ -27,6 +27,12 @@ auth:
     username: "admin"
     password: "admin123"
     email: "admin@localhost"
+  # 默认测试账号配置（首次启动时自动创建）
+  default_user:
+    enabled: true
+    username: "testuser"
+    password: "testuser123"
+    email: "test@localhost"
   # LDAP 配置
   ldap:
     enabled: false

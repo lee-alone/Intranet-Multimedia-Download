@@ -67,6 +67,7 @@ type AuthConfig struct {
 	LDAP          LDAPConfig         `yaml:"ldap"`
 	SSO           SSOConfig          `yaml:"sso"`
 	DefaultAdmin  DefaultAdminConfig `yaml:"default_admin"`
+	DefaultUser   DefaultAdminConfig `yaml:"default_user"`
 }
 
 // DefaultAdminConfig 默认管理员配置
@@ -303,6 +304,20 @@ func setDefaults(cfg *Config) {
 	}
 	if cfg.Auth.DefaultAdmin.Email == "" {
 		cfg.Auth.DefaultAdmin.Email = "admin@localhost"
+	}
+
+	// 默认测试账号配置
+	if !cfg.Auth.DefaultUser.Enabled {
+		cfg.Auth.DefaultUser.Enabled = true
+	}
+	if cfg.Auth.DefaultUser.Username == "" {
+		cfg.Auth.DefaultUser.Username = "testuser"
+	}
+	if cfg.Auth.DefaultUser.Password == "" {
+		cfg.Auth.DefaultUser.Password = "testuser123"
+	}
+	if cfg.Auth.DefaultUser.Email == "" {
+		cfg.Auth.DefaultUser.Email = "test@localhost"
 	}
 
 	// 下载配置

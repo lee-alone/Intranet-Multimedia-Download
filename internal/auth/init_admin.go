@@ -1,4 +1,4 @@
-// Package auth 提供默认管理员账号初始化功能
+// Package auth 提供默认用户账号初始化功能
 package auth
 
 import (
@@ -9,14 +9,14 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// InitDefaultAdmin 初始化默认管理员账号
-// 如果数据库中不存在 admin 用户，则创建
-func InitDefaultAdmin(db *sql.DB, username, password, email string) error {
-	// 检查是否已存在 admin 用户
+// InitUser 初始化默认用户账号
+// 如果指定用户名的用户不存在，则创建
+func InitUser(db *sql.DB, username, password, email, role string) error {
+	// 检查是否已存在该用户
 	var count int
 	err := db.QueryRow("SELECT COUNT(*) FROM users WHERE username = ?", username).Scan(&count)
 	if err != nil {
-		return fmt.Errorf("failed to check admin user: %w", err)
+		return fmt.Errorf("failed to check user: %w", err)
 	}
 
 	// 如果已存在，跳过创建
@@ -30,13 +30,13 @@ func InitDefaultAdmin(db *sql.DB, username, password, email string) error {
 		return fmt.Errorf("failed to hash password: %w", err)
 	}
 
-	// 插入管理员账号
+	// 插入用户账号
 	result, err := db.Exec(`
 		INSERT INTO users (username, password_hash, email, role, is_initialized)
-		VALUES (?, ?, ?, 'admin', 1)
-	`, username, string(hashedPassword), email)
+		VALUES (?, ?, ?, ?, 1)
+	`, username, string(hashedPassword), email, role)
 	if err != nil {
-		return fmt.Errorf("failed to insert admin user: %w", err)
+		return fmt.Errorf("failed to insert user: %w", err)
 	}
 
 	// 获取插入的 ID
@@ -45,10 +45,18 @@ func InitDefaultAdmin(db *sql.DB, username, password, email string) error {
 		return fmt.Errorf("failed to get last insert id: %w", err)
 	}
 
-	log.Printf("默认管理员账号创建成功：username=%s, id=%d", username, id)
-	log.Printf("警告：请尽快修改默认密码！")
+	log.Printf("默认用户账号创建成功：username=%s, role=%s, id=%d", username, role, id)
+	if role == "admin" {
+		log.Printf("警告：请尽快修改默认管理员密码！")
+	}
 
 	return nil
+}
+
+// InitDefaultAdmin 初始化默认管理员账号（向后兼容）
+// 如果数据库中不存在 admin 用户，则创建
+func InitDefaultAdmin(db *sql.DB, username, password, email string) error {
+	return InitUser(db, username, password, email, "admin")
 }
 
 // CheckAdminExists 检查管理员账号是否存在
