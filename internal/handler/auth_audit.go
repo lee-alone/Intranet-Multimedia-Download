@@ -133,22 +133,27 @@ func (h *AuthHandler) GetAuditLogs(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// auditLog 记录审计日志
+// auditLog 记录审计日志（异步模式）
 func (h *AuthHandler) auditLog(r *http.Request, userID int, action, resourceType string, resourceID int, detail string) {
+	// 关键：在进入协程前，先从请求中提取需要的数据，因为协程运行期间请求上下文可能已销毁
 	ip := getClientIP(r)
-
-	// 构建审计日志
-	auditLog := &audit.AuditLog{
-		UserID:       int64Ptr(userID),
-		Action:       audit.ActionType(action),
-		ResourceType: resourceTypePtr(audit.ResourceType(resourceType)),
-		ResourceID:   int64Ptr(resourceID),
-		IPAddress:    ip,
-		UserAgent:    r.UserAgent(),
-		Detail:       map[string]interface{}{"detail": detail},
-	}
-
-	if err := h.auditLogger.Log(auditLog); err != nil {
-		log.Printf("Failed to write audit log: %v", err)
-	}
+	ua := r.UserAgent()
+	
+	// 开启后台协程处理耗时的数据库/文件写入
+	go func() {
+		auditLog := &audit.AuditLog{
+			UserID:       int64Ptr(userID),
+			Action:       audit.ActionType(action),
+			ResourceType: resourceTypePtr(audit.ResourceType(resourceType)),
+			ResourceID:   int64Ptr(resourceID),
+			IPAddress:    ip,
+			UserAgent:    ua,
+			Detail:       map[string]interface{}{"detail": detail},
+			CreatedAt:    time.Now(),
+		}
+		if err := h.auditLogger.Log(auditLog); err != nil {
+			// 后台记录失败仅打印日志，不阻塞用户
+			log.Printf("🚨 [AsyncAudit] 异步写入审计日志失败: %v", err)
+		}
+	}()
 }

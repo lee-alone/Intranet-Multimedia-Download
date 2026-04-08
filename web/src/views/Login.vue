@@ -141,6 +141,7 @@ async function handleLogin() {
               @input="onPasswordInput"
               :type="showPassword ? 'text' : 'password'"
               required
+              autocomplete="current-password"
               class="block w-full px-4 py-2.5 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors"
               placeholder="请输入密码"
               :disabled="loading"

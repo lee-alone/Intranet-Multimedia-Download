@@ -80,7 +80,8 @@ func NewJWTManager(privateKeyPath, publicKeyPath string, expiry, refreshExpiry i
 
 // GenerateToken 生成访问令牌和刷新令牌
 func (m *JWTManager) GenerateToken(userID int, username, role string) (*TokenPair, error) {
-	now := time.Now()
+	// IssuedAt 和 NotBefore 统一减去 1 * time.Minute，避免时钟不同步问题
+	now := time.Now().Add(-1 * time.Minute)
 
 	// 生成访问令牌
 	accessClaims := Claims{
@@ -129,7 +130,10 @@ func (m *JWTManager) GenerateToken(userID int, username, role string) (*TokenPai
 
 // ValidateToken 验证访问令牌
 func (m *JWTManager) ValidateToken(tokenString string) (*Claims, error) {
-	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
+	// 使用 leeway 来解析 Token，容忍 1 分钟的时钟偏差
+	parser := jwt.NewParser(jwt.WithLeeway(time.Minute))
+	
+	token, err := parser.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
